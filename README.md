@@ -1,4 +1,4 @@
-# KoTon (코톤): Real-Time GNN Provenance Intrusion Detection System
+# KoTon: Real-Time GNN Provenance Intrusion Detection System
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![PyTorch Geometric](https://img.shields.io/badge/PyG-Heterogeneous%20GNN%20(HGT%2FRGCN)-orange.svg)](https://pyg.org/)
@@ -6,7 +6,7 @@
 [![Low FPR](https://img.shields.io/badge/FPR-%E2%89%A4%200.1%25%20(Calibrated)-red.svg)](https://github.com/)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-KoTon(코톤)은 **이종 그래프 신경망(Heterogeneous GNN - HGT / RGCN)** 기반 실시간 Linux 호스트 침입 탐지 및 인과 관계 포렌식 시스템입니다. WSL2 내부의 Linux `auditd` 로그를 스트리밍 형태로 수집·분석하여 Ultra-low FPR(목표 FPR &le; 0.1%) 수준으로 악성 행위를 탐지하고, WebGL 기반 **3D Force-Directed Causal Graph**로 공격 킬체인을 실시간 시각화합니다.
+KoTon은 **이종 그래프 신경망(Heterogeneous GNN - HGT / RGCN)** 기반 실시간 Linux 호스트 침입 탐지 및 인과 관계 포렌식 시스템입니다. WSL2 내부의 Linux `auditd` 로그를 스트리밍 형태로 수집·분석하여 Ultra-low FPR(목표 FPR &le; 0.1%) 수준으로 악성 행위를 탐지하고, WebGL 기반 **3D Force-Directed Causal Graph**로 공격 킬체인을 실시간 시각화합니다.
 
 ---
 
