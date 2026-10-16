@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KoTon: 3-Window Real-Time Live Security Demonstration</title>
+  <link rel="stylesheet" href="/static/css/cyber_theme.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #030712;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .top-toolbar {
+      height: 48px;
+      background: #0b1120;
+      border-bottom: 1px solid #1e3a5f;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+    }
+    .toolbar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-tool {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-tool:hover {
+      background: #334155;
+      border-color: #00e5ff;
+      color: #00e5ff;
+    }
+    .btn-attack {
+      background: #dc2626;
+      border-color: #ef4444;
+      color: #fff;
+      font-weight: 700;
+    }
+    .btn-attack:hover {
+      background: #b91c1c;
+      color: #fff;
+    }
+    /* 3-Window Split Grid */
+    .split-grid {
+      display: grid;
+      grid-template-columns: 28% 32% 40%;
+      height: calc(100vh - 48px);
+      width: 100%;
+      background: #05080f;
+    }
+    .pane {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #1e293b;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+    .pane:last-child {
+      border-right: none;
+    }
+    .pane-header {
+      height: 34px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #1e293b;
+      background: #090e17;
+      user-select: none;
+    }
+    .header-victim { color: #38bdf8; border-top: 2px solid #0284c7; }
+    .header-attacker { color: #f87171; border-top: 2px solid #dc2626; }
+    .header-soc { color: #2dd4bf; border-top: 2px solid #0d9488; }
+    .pane-iframe {
+      width: 100%;
+      height: calc(100% - 34px);
+      border: none;
+      background: transparent;
+    }
+    .popout-link {
+      color: #64748b;
+      font-size: 0.72rem;
+      text-decoration: none;
+    }
+    .popout-link:hover { color: #00e5ff; }
+  </style>
+</head>
+<body>
+  <!-- Top Global Toolbar -->
+  <header class="top-toolbar">
+    <div class="toolbar-title">
+      <span class="pulse-badge" id="globalPulse"></span>
+      <span style="color:#00e5ff; font-weight:800; letter-spacing:1px;">KoTon</span>
+      <span style="color:#64748b; font-size:0.8rem;">| 3-Window Real-Time GNN Provenance Intrusion Detection</span>
+    </div>
+
+    <div class="toolbar-actions">
+      <button class="btn-tool" id="btnSimBenign" title="Generate normal benign traffic">+ Sim Benign Traffic</button>
+      <button class="btn-tool btn-attack" id="btnRunChain" title="Execute full 4-stage APT Kill Chain">&gt;&gt; RUN FULL KILL-CHAIN &lt;&lt;</button>
+      <button class="btn-tool" id="btnResetAll">Reset Graph</button>
+      <a href="/" class="btn-tool">&larr; Return to Hub</a>
+    </div>
+  </header>
+
+  <!-- 3-Window Split Container -->
+  <main class="split-grid">
+    <!-- Pane 1: Victim Web App -->
+    <div class="pane">
+      <div class="pane-header header-victim">
+        <span>WINDOW 1 &bull; VICTIM WEB APP (Upload / Login)</span>
+        <a href="/app" target="_blank" class="popout-link">Open Tab &#8599;</a>
+      </div>
+      <iframe src="/app" class="pane-iframe" id="frameVictim"></iframe>
+    </div>
+
+    <!-- Pane 2: Attacker Web Shell -->
+    <div class="pane">
+      <div class="pane-header header-attacker">
+        <span>WINDOW 2 &bull; ATTACKER WEBSHELL (RCE / C2)</span>
+        <a href="/terminal" target="_blank" class="popout-link">Open Tab &#8599;</a>
+      </div>
+      <iframe src="/terminal" class="pane-iframe" id="frameAttacker"></iframe>
+    </div>
+
+    <!-- Pane 3: SOC 3D Causal Graph -->
+    <div class="pane">
+      <div class="pane-header header-soc">
+        <span>WINDOW 3 &bull; SOC CAUSAL GRAPH (3D WebGL / SSE)</span>
+        <a href="/dashboard" target="_blank" class="popout-link">Open Tab &#8599;</a>
+      </div>
+      <iframe src="/dashboard" class="pane-iframe" id="frameSOC"></iframe>
+    </div>
+  </main>
+
+  <script>
+    document.getElementById("btnRunChain").addEventListener("click", async () => {
+      const btn = document.getElementById("btnRunChain");
+      btn.innerText = "Executing Kill Chain...";
+      btn.disabled = true;
+      try {
+        await fetch("/api/attacks/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario: "full" })
+        });
+        btn.innerText = "Kill Chain Injected! 🔴";
+        // Reload attacker terminal to show output
+        const fAttacker = document.getElementById("frameAttacker");
+        fAttacker.src = fAttacker.src;
+      } catch (err) {
+        btn.innerText = "Error Triggering Attack";
+      }
+      setTimeout(() => {
+        btn.innerText = ">> RUN FULL KILL-CHAIN <<";
+        btn.disabled = false;
+      }, 4000);
+    });
+
+    document.getElementById("btnSimBenign").addEventListener("click", async () => {
+      const btn = document.getElementById("btnSimBenign");
+      btn.innerText = "Sending Traffic...";
+      try {
+        await fetch("/api/traffic/benign", { method: "POST" });
+        btn.innerText = "Traffic Injected! 🟢";
+      } catch (e) {
+        btn.innerText = "Error";
+      }
+      setTimeout(() => { btn.innerText = "+ Sim Benign Traffic"; }, 1500);
+    });
+
+    document.getElementById("btnResetAll").addEventListener("click", async () => {
+      try {
+        await fetch("/api/graph/reset", { method: "POST" });
+        // Refresh frames
+        document.getElementById("frameSOC").contentWindow.location.reload();
+      } catch (e) {}
+    });
+  </script>
+</body>
+</html>

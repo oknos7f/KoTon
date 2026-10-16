@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Window 1: CorpNet Document Portal (Victim Service)</title>
+  <link rel="stylesheet" href="/static/css/cyber_theme.css">
+  <style>
+    body {
+      background: #090e17;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .top-nav {
+      height: 48px;
+      background: #0d1527;
+      border-bottom: 1px solid #1e3a5f;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+    .portal-container {
+      max-width: 960px;
+      margin: 20px auto;
+      padding: 0 16px;
+    }
+    /* Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #1e293b;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #94a3b8;
+      padding: 10px 18px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: #38bdf8; }
+    .tab-btn.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.05);
+    }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    /* Panels */
+    .panel {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    }
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-top: 0;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .form-group {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+    input[type="text"], input[type="email"], select, textarea {
+      background: #020617;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #38bdf8;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
+    }
+    .btn-action {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-action:hover { background: #0369a1; }
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 0.82rem;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid #1e293b;
+    }
+    th {
+      background: #111e38;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .badge-clean {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid #059669;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .badge-vuln {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid #dc2626;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .alert-banner {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .alert-success { background: #064e3b; border: 1px solid #059669; color: #6ee7b7; }
+    .alert-danger { background: #450a0a; border: 1px solid #dc2626; color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <!-- Top Navigation Header -->
+  <header class="top-nav">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="pulse-badge"></span>
+      <span style="font-weight:700; color:#38bdf8; font-size:0.9rem;">
+        [Window 1] CorpNet Enterprise Document Portal
+      </span>
+      <span style="color:#64748b; font-size:0.78rem;">(WSL2 Victim Host &bull; Target App)</span>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span style="font-size:0.78rem; color:#94a3b8;">
+        User: <strong id="currentUserBadge" style="color:#38bdf8;">finance_mgr (UID 1002)</strong>
+      </span>
+      <button class="btn-cyber" id="btnSimTraffic" style="font-size:0.75rem; padding:5px 10px;">
+        + Simulate Benign Web Traffic
+      </button>
+    </div>
+  </header>
+
+  <div class="portal-container">
+    <!-- Feedback Alerts -->
+    {% if upload_msg %}
+      {% if is_vulnerable %}
+        <div class="alert-banner alert-danger">
+          <span>&#9888;</span>
+          <div>
+            <strong>VULNERABILITY EXPLOITED:</strong> {{ upload_msg }}<br>
+            <span style="font-size:0.75rem;">Dangerous file extension detected! Script was staged in executable directory. GNN provenance alert triggered!</span>
+          </div>
+        </div>
+      {% else %}
+        <div class="alert-banner alert-success">
+          <span>&#10003;</span>
+          <div>{{ upload_msg }}</div>
+        </div>
+      {% endif %}
+    {% endif %}
+
+    <!-- Tabs Navigation -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('tab-upload')">📁 Document Upload Board</button>
+      <button class="tab-btn" onclick="switchTab('tab-profile')">👤 User Profile Management</button>
+      <button class="tab-btn" onclick="switchTab('tab-auth')">🔐 Session & Authentication</button>
+    </div>
+
+    <!-- TAB 1: Document Upload Board -->
+    <div id="tab-upload" class="tab-pane active">
+      <div class="panel">
+        <h3 class="panel-title">Upload Corporate Document / Project File</h3>
+        <p style="color:#94a3b8; font-size:0.82rem; margin-top:0; margin-bottom:16px;">
+          Submit Q4 audits, design drafts, or logs. Files are automatically processed and stored in <code>/var/www/uploads/</code>.
+        </p>
+
+        <form action="/app" method="POST" enctype="multipart/form-data">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label>Select File</label>
+              <input type="file" name="file" required style="padding:6px; background:#020617; border:1px solid #334155; color:#fff;">
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Document Category</label>
+              <select name="category">
+                <option value="Financial Report">Financial Report</option>
+                <option value="System Maintenance">System Maintenance</option>
+                <option value="HR Policy">HR Policy</option>
+                <option value="Custom Script">Custom Script / Utility</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="btn-action">Upload & Ingest to Archive</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h3 class="panel-title">
+          <span>Recent Uploaded Documents Archive</span>
+          <span style="font-size:0.75rem; color:#64748b;" id="docCount">4 Documents</span>
+        </h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Category</th>
+              <th>Uploader</th>
+              <th>Storage Path</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="docTableBody">
+            <tr>
+              <td><strong>Q4_Financial_Report.pdf</strong></td>
+              <td>Financial Report</td>
+              <td>finance_mgr (UID 1002)</td>
+              <td><code>/app/uploads/Q4_Financial_Report.pdf</code></td>
+              <td><span class="badge-clean">&#10003; Clean</span></td>
+            </tr>
+            <tr>
+              <td><strong>Employee_Handbook_2026.docx</strong></td>
+              <td>HR Policy</td>
+              <td>hr_admin (UID 1005)</td>
+              <td><code>/app/uploads/Employee_Handbook_2026.docx</code></td>
+              <td><span class="badge-clean">&#10003; Clean</span></td>
+            </tr>
+            <tr>
+              <td><strong>server_maintenance_notes.txt</strong></td>
+              <td>System Maintenance</td>
+              <td>sysadmin (UID 1000)</td>
+              <td><code>/app/uploads/server_maintenance_notes.txt</code></td>
+              <td><span class="badge-clean">&#10003; Clean</span></td>
+            </tr>
+            {% if last_uploaded_file %}
+            <tr>
+              <td><strong>{{ last_uploaded_file }}</strong></td>
+              <td>Uploaded Asset</td>
+              <td>Current Session</td>
+              <td><code>/app/uploads/{{ last_uploaded_file }}</code></td>
+              <td>
+                {% if is_vulnerable %}
+                <span class="badge-vuln">&#9888; Suspicious / WebShell</span>
+                {% else %}
+                <span class="badge-clean">&#10003; Clean</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 2: User Profile Management -->
+    <div id="tab-profile" class="tab-pane">
+      <div class="panel">
+        <h3 class="panel-title">Employee Profile Settings</h3>
+        <p style="color:#94a3b8; font-size:0.82rem; margin-top:0; margin-bottom:16px;">
+          Manage personal department records, contact information, and cryptographic SSH credentials.
+        </p>
+
+        <form id="profileForm" onsubmit="saveProfile(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="profName" value="Alex Kim">
+            </div>
+            <div class="form-group">
+              <label>Corporate Email</label>
+              <input type="email" id="profEmail" value="alex.kim@corpnet.local">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Department</label>
+              <select id="profDept">
+                <option value="Finance & Accounting">Finance & Accounting</option>
+                <option value="IT Operations">IT Operations</option>
+                <option value="Human Resources">Human Resources</option>
+                <option value="Security Operations">Security Operations</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Assigned Host Clearance</label>
+              <input type="text" value="Level 3 (Confidential)" disabled style="background:#0f172a; color:#64748b;">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label>Public SSH Key (authorized_keys)</label>
+            <textarea id="profSSH" rows="3" style="font-family:monospace; font-size:0.75rem;">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG1r58y4jN/KotonSecKey2026 alex@corpnet</textarea>
+          </div>
+          <button type="submit" class="btn-action">Update Profile & Save Changes</button>
+          <span id="profSavedMsg" style="color:#10b981; font-size:0.82rem; margin-left:12px; display:none;">
+            &#10003; Profile updated! Syscall logged.
+          </span>
+        </form>
+      </div>
+    </div>
+
+    <!-- TAB 3: Session & Authentication -->
+    <div id="tab-auth" class="tab-pane">
+      <div class="panel">
+        <h3 class="panel-title">Switch Active User Session</h3>
+        <p style="color:#94a3b8; font-size:0.82rem; margin-top:0; margin-bottom:16px;">
+          Simulate multi-user authentication events on the victim host. Each login emits <code>execve</code> and PAM credential audit events.
+        </p>
+
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="background:#0f172a; padding:12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
+            <div>
+              <strong style="color:#f1f5f9;">finance_mgr</strong> (UID 1002) &bull; Standard Business User
+              <div style="color:#64748b; font-size:0.75rem;">Role: Access to Financial reports and /app/uploads</div>
+            </div>
+            <button class="btn-cyber" onclick="switchUser('finance_mgr', 1002)">Login as finance_mgr</button>
+          </div>
+
+          <div style="background:#0f172a; padding:12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
+            <div>
+              <strong style="color:#f1f5f9;">sysadmin</strong> (UID 1000) &bull; Host Administrator
+              <div style="color:#64748b; font-size:0.75rem;">Role: Sudoer access, server configuration</div>
+            </div>
+            <button class="btn-cyber" onclick="switchUser('sysadmin', 1000)">Login as sysadmin</button>
+          </div>
+
+          <div style="background:#0f172a; padding:12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; border:1px solid #1e293b;">
+            <div>
+              <strong style="color:#f87171;">www-data</strong> (UID 33) &bull; Web Service Worker
+              <div style="color:#64748b; font-size:0.75rem;">Role: Nginx / Python Web runtime identity (Attacker Entrypoint)</div>
+            </div>
+            <button class="btn-cyber" onclick="switchUser('www-data', 33)">Inspect Service Account</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      event.target.classList.add("active");
+      document.getElementById(tabId).classList.add("active");
+    }
+
+    async function saveProfile(e) {
+      e.preventDefault();
+      const msg = document.getElementById("profSavedMsg");
+      try {
+        await fetch("/api/traffic/benign", { method: "POST" });
+        msg.style.display = "inline";
+        setTimeout(() => { msg.style.display = "none"; }, 2500);
+      } catch (err) {}
+    }
+
+    async function switchUser(username, uid) {
+      document.getElementById("currentUserBadge").innerText = `${username} (UID ${uid})`;
+      try {
+        await fetch("/api/traffic/benign", { method: "POST" });
+      } catch (err) {}
+    }
+
+    document.getElementById("btnSimTraffic").addEventListener("click", async () => {
+      const btn = document.getElementById("btnSimTraffic");
+      btn.innerText = "Simulating Events...";
+      try {
+        await fetch("/api/traffic/benign", { method: "POST" });
+        btn.innerText = "Traffic Generated! +1 Event";
+        setTimeout(() => { btn.innerText = "+ Simulate Benign Web Traffic"; }, 1500);
+      } catch (e) {
+        btn.innerText = "Error";
+      }
+    });
+  </script>
+</body>
+</html>

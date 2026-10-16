@@ -1,0 +1,117 @@
+/* Terminal styling for Window 2 (Attacker WebShell) */
+.term-window {
+  width: 92%;
+  max-width: 950px;
+  margin: 30px auto;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 15px rgba(239, 68, 68, 0.15);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 80vh;
+}
+
+.term-header {
+  background: #161b22;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #21262d;
+}
+
+.term-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.term-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.dot-red { background: #ff5f56; }
+.dot-yellow { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
+
+.term-title {
+  color: #8b949e;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.quick-bar {
+  background: #0f141c;
+  padding: 10px 16px;
+  border-bottom: 1px solid #21262d;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.quick-btn {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-btn:hover {
+  background: #b91c1c;
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.term-body {
+  flex-grow: 1;
+  padding: 16px;
+  overflow-y: auto;
+  font-family: "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #38ef7d;
+  background: #06090e;
+}
+
+.prompt-line {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.prompt-prefix {
+  color: #f87171;
+  font-weight: bold;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.cmd-input {
+  flex-grow: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f1f5f9;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.term-out {
+  color: #94a3b8;
+  white-space: pre-wrap;
+  margin: 4px 0 12px 0;
+}
+
+.term-out.danger {
+  color: #f87171;
+  border-left: 2px solid #ef4444;
+  padding-left: 8px;
+}

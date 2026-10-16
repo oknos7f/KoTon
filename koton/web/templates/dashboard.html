@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Window 3: 3D Force-Directed Causal Graph SOC Dashboard</title>
+  <link rel="stylesheet" href="/static/css/cyber_theme.css">
+  <!-- 3D Force Graph & Three.js via CDN -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/3d-force-graph@1.73.3/dist/3d-force-graph.min.js"></script>
+  <style>
+    body {
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      background: #05080f;
+    }
+    #3d-graph {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+    /* Overlay HUD */
+    .hud-overlay {
+      position: absolute;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .interactive {
+      pointer-events: auto;
+    }
+    .hud-top {
+      top: 16px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .metric-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(13, 22, 38, 0.85);
+      border: 1px solid #1e3a5f;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      backdrop-filter: blur(8px);
+    }
+    .metric-val {
+      font-weight: 700;
+      color: #00e5ff;
+    }
+    .threat-active {
+      border-color: #ef4444;
+      background: rgba(45, 10, 15, 0.88);
+    }
+    .threat-active .metric-val {
+      color: #f87171;
+    }
+    /* Incident Feed Drawer */
+    .alert-drawer {
+      position: absolute;
+      top: 75px;
+      right: 20px;
+      width: 380px;
+      max-height: 80vh;
+      background: rgba(10, 17, 30, 0.92);
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 20;
+    }
+    .drawer-header {
+      padding: 12px 16px;
+      background: #0f1c30;
+      border-bottom: 1px solid #1e3a5f;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+    .drawer-list {
+      flex-grow: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .alert-card {
+      background: rgba(22, 33, 54, 0.9);
+      border: 1px solid #1e3a5f;
+      border-left: 4px solid #00e5ff;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 0.82rem;
+      transition: all 0.2s;
+    }
+    .alert-card.critical {
+      border-left-color: #ef4444;
+      background: rgba(45, 15, 20, 0.85);
+    }
+    .alert-title {
+      font-weight: 700;
+      color: #f1f5f9;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .alert-meta {
+      color: #94a3b8;
+      font-family: monospace;
+      font-size: 0.75rem;
+    }
+    .tag-technique {
+      background: #312e81;
+      color: #c7d2fe;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      font-family: monospace;
+    }
+    /* Control Toolbar (Bottom) */
+    .hud-bottom {
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .control-panel {
+      background: rgba(13, 22, 38, 0.9);
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      backdrop-filter: blur(8px);
+    }
+    /* Node Detail Modal / Inspector */
+    .node-inspector {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 380px;
+      background: rgba(10, 17, 30, 0.95);
+      border: 1px solid #00e5ff;
+      border-radius: 8px;
+      padding: 16px;
+      display: none;
+      z-index: 25;
+      font-size: 0.85rem;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.25);
+    }
+    /* Legend */
+    .legend-box {
+      position: absolute;
+      top: 85px;
+      left: 20px;
+      background: rgba(13, 22, 38, 0.85);
+      border: 1px solid #1e3a5f;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot-legend {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body class="cyber-bg">
+  <div id="3d-graph"></div>
+
+  <!-- Top HUD Bar -->
+  <div class="hud-overlay hud-top">
+    <div style="display:flex; gap:12px; align-items:center;">
+      <div class="metric-badge">
+        <span class="pulse-badge" id="systemPulse"></span>
+        <span id="systemStatusText" style="font-weight:700;">NORMAL / MONITORING</span>
+      </div>
+      <div class="metric-badge">
+        <span>Active Entities:</span>
+        <span class="metric-val" id="nodeCount">0</span>
+      </div>
+      <div class="metric-badge" id="threatBadge">
+        <span>Threat Anomalies:</span>
+        <span class="metric-val" id="anomalyCount">0</span>
+      </div>
+      <div class="metric-badge">
+        <span>Target FPR:</span>
+        <span class="metric-val">&lt; 0.1%</span>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px;">
+      <button class="btn-cyber interactive" id="btnToggleRotate">Toggle Auto-Rotate</button>
+      <button class="btn-cyber interactive btn-danger" id="btnResetGraph">Reset Graph</button>
+    </div>
+  </div>
+
+  <!-- Legend Box -->
+  <div class="hud-overlay legend-box">
+    <div style="font-weight:700; color:#94a3b8; margin-bottom:2px;">PROVENANCE ENTITIES</div>
+    <div class="legend-item"><span class="dot-legend" style="background:#00e5ff;"></span> <span>Process (Cyan Sphere)</span></div>
+    <div class="legend-item"><span class="dot-legend" style="background:#10b981;"></span> <span>File (Green Cube)</span></div>
+    <div class="legend-item"><span class="dot-legend" style="background:#f59e0b;"></span> <span>Network Socket (Orange Diamond)</span></div>
+    <div class="legend-item"><span class="dot-legend" style="background:#ef4444; box-shadow:0 0 6px #ef4444;"></span> <span style="color:#f87171; font-weight:bold;">Kill-Chain / Anomaly (Glowing Red)</span></div>
+  </div>
+
+  <!-- Right Drawer: Incident Feed -->
+  <div class="alert-drawer interactive">
+    <div class="drawer-header">
+      <span style="color:#00e5ff; display:flex; align-items:center; gap:8px;">
+        <span>&#9888;</span> Live Incident Feed (SSE)
+      </span>
+      <span id="alertCounter" style="background:#1e3a5f; padding:2px 8px; border-radius:10px; font-size:0.75rem;">0 Alerts</span>
+    </div>
+    <div class="drawer-list" id="alertList">
+      <div style="color:#64748b; font-size:0.8rem; text-align:center; padding:30px 10px;">
+        Monitoring audit stream...<br>No anomalous kill chains detected.
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Control Toolbar -->
+  <div class="hud-overlay hud-bottom">
+    <div class="control-panel interactive">
+      <span style="font-size:0.82rem; color:#94a3b8; font-weight:600;">Sensitivity / Anomaly Threshold:</span>
+      <input type="range" id="thresholdSlider" min="0.10" max="0.95" step="0.05" value="0.65" style="cursor:pointer; accent-color:#00e5ff;">
+      <span id="thresholdVal" style="font-family:monospace; color:#00e5ff; font-weight:700; width:45px;">0.65</span>
+    </div>
+  </div>
+
+  <!-- Node Inspector Drawer (Click on Node) -->
+  <div class="node-inspector interactive" id="nodeInspector">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <span style="font-weight:700; color:#00e5ff;" id="inspTitle">Entity Details</span>
+      <button style="background:transparent; border:none; color:#94a3b8; cursor:pointer;" id="btnCloseInspector">&times;</button>
+    </div>
+    <div id="inspBody" style="font-family:monospace; font-size:0.78rem; line-height:1.6; color:#cbd5e1;"></div>
+  </div>
+
+  <script src="/static/js/dashboard_3d.js"></script>
+</body>
+</html>

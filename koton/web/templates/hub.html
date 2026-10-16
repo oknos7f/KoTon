@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KoTon: Real-Time GNN Provenance Security Platform</title>
+  <link rel="stylesheet" href="/static/css/cyber_theme.css">
+  <style>
+    .hub-container {
+      max-width: 1180px;
+      margin: 30px auto;
+      padding: 24px;
+    }
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(13, 22, 38, 0.95), rgba(8, 14, 26, 0.95));
+      border: 1px solid #1e3a5f;
+      border-radius: 10px;
+      padding: 30px 36px;
+      margin-bottom: 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    }
+    .hero-btn {
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 0 20px rgba(14, 165, 233, 0.4);
+      transition: all 0.25s;
+    }
+    .hero-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 30px rgba(14, 165, 233, 0.6);
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: rgba(13, 22, 38, 0.9);
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: #00e5ff;
+      box-shadow: 0 8px 30px rgba(0, 229, 255, 0.2);
+    }
+    .card-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-desc {
+      color: #94a3b8;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+    .badge-win {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .badge-1 { background: #0284c7; color: #fff; }
+    .badge-2 { background: #dc2626; color: #fff; }
+    .badge-3 { background: #0d9488; color: #fff; }
+    .btn-launch {
+      display: inline-block;
+      text-align: center;
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.88rem;
+      transition: opacity 0.2s;
+    }
+    .btn-launch:hover { opacity: 0.9; }
+    .btn-attacker { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .btn-soc { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+    .arch-specs {
+      background: rgba(10, 16, 28, 0.85);
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      font-size: 0.85rem;
+    }
+    .spec-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .spec-label {
+      color: #64748b;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .spec-val {
+      color: #e2e8f0;
+      font-weight: 700;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body class="cyber-bg">
+  <div class="hub-container">
+    <!-- Header -->
+    <div style="text-align: center; margin-bottom: 28px;">
+      <h1 class="glow-text" style="font-size: 2.3rem; margin-bottom: 6px; letter-spacing: 0.5px;">
+        KoTon: Real-Time GNN Provenance Security Platform
+      </h1>
+      <p style="color: #94a3b8; font-size: 1rem; max-width: 800px; margin: 0 auto;">
+        Heterogeneous Graph Neural Network (HGT / RGCN) Intrusion Detection System streaming Linux host auditd telemetry with ultra-low False Positive Rate (&le; 0.1%) and 3D Force-Directed Causal Forensics.
+      </p>
+    </div>
+
+    <!-- Hero / Split View Banner -->
+    <div class="hero-banner">
+      <div>
+        <div style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 6px;">
+          🚀 Unified 3-Window Live Demonstration
+        </div>
+        <div style="color: #94a3b8; font-size: 0.92rem; max-width: 650px;">
+          View all three screens (Victim Service &bull; Attacker Terminal &bull; SOC 3D Causal Graph) synchronized side-by-side in a single window.
+        </div>
+      </div>
+      <a href="/split" class="hero-btn">
+        <span>Launch 3-Window Split View &rarr;</span>
+      </a>
+    </div>
+
+    <!-- 3-Window Individual Cards Grid -->
+    <div class="cards-grid">
+      <!-- Window 1: Victim Service -->
+      <div class="card">
+        <div>
+          <div class="card-title">
+            <span class="badge-win badge-1">Window 1</span>
+            <span style="color: #38bdf8;">Victim Service</span>
+          </div>
+          <p class="card-desc">
+            Normal &amp; vulnerable web portal featuring user login, employee profile management, and corporate document upload boards. Normal actions emit benign baseline telemetry, while vulnerable uploads stage exploits.
+          </p>
+        </div>
+        <a href="/app" target="_blank" class="btn-launch">Open Window 1 &rarr;</a>
+      </div>
+
+      <!-- Window 2: Attacker WebShell -->
+      <div class="card">
+        <div>
+          <div class="card-title">
+            <span class="badge-win badge-2">Window 2</span>
+            <span style="color: #f87171;">Attacker WebShell</span>
+          </div>
+          <p class="card-desc">
+            Offensive console to execute interactive APT scenarios:
+            <br>&bull; <strong>1. Recon:</strong> <code>whoami</code>, <code>id</code>, <code>uname -a</code>
+            <br>&bull; <strong>2. Creds:</strong> <code>cat /etc/passwd</code>
+            <br>&bull; <strong>3. Dropper:</strong> <code>curl stage2.elf</code>
+            <br>&bull; <strong>4. PrivEsc &amp; C2:</strong> SUID abuse &amp; Reverse Shell
+          </p>
+        </div>
+        <a href="/terminal" target="_blank" class="btn-launch btn-attacker">Open Window 2 &rarr;</a>
+      </div>
+
+      <!-- Window 3: SOC 3D Causal Graph -->
+      <div class="card">
+        <div>
+          <div class="card-title">
+            <span class="badge-win badge-3">Window 3</span>
+            <span style="color: #2dd4bf;">SOC 3D Causal Graph</span>
+          </div>
+          <p class="card-desc">
+            WebGL/Three.js 3D Force-Directed Causal Graph streamed over Server-Sent Events (SSE). Process (🔵 Cyan), File (🟢 Green), Socket (🟠 Orange), glowing red attack paths, and interactive MITRE ATT&amp;CK forensic drawer.
+          </p>
+        </div>
+        <a href="/dashboard" target="_blank" class="btn-launch btn-soc">Open Window 3 &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Architecture & Model Specifications -->
+    <div class="arch-specs">
+      <div class="spec-item">
+        <span class="spec-label">GNN Backbone</span>
+        <span class="spec-val" style="color:#38bdf8;">PyG HGTConv &amp; RGCN</span>
+      </div>
+      <div class="spec-item">
+        <span class="spec-label">Target False Positive Rate</span>
+        <span class="spec-val" style="color:#10b981;">FPR &le; 0.1% (Calibrated)</span>
+      </div>
+      <div class="spec-item">
+        <span class="spec-label">Loss Function</span>
+        <span class="spec-val" style="color:#f59e0b;">Weighted Focal Loss (&gamma;=2.0)</span>
+      </div>
+      <div class="spec-item">
+        <span class="spec-label">Telemetry Ingest</span>
+        <span class="spec-val" style="color:#a855f7;">WSL2 auditd / Real-time SSE</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 30px; text-align: center; color: #475569; font-size: 0.8rem;">
+      KoTon Real-Time Security Detection Engine &bull; DARPA TC Validated &bull; PyTorch Geometric
+    </div>
+  </div>
+</body>
+</html>
