@@ -56,6 +56,8 @@
 
 ## 4. 모델 아키텍처 및 학습·보정 프로토콜
 
+![Model](./image.png)
+
 ### 4.1 Edge-Aware Multi-Task HeteroGNN (`src/models/hetero_gnn.py`)
 1. **Input Projection:** 노드 타입별 선형 투영(`68/36/20 -> 128-dim`) + `LayerNorm` + `GELU`.
 2. **Relational Backbone:** 10종 정·역방향 관계별 `GATv2Conv(128, 32, heads=4, edge_dim=2, add_self_loops=False)`를 적용한 2-Layer `HeteroConv` (Residual Connection + `LayerNorm` + `GELU`).
