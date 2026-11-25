@@ -1,49 +1,25 @@
-# KoTon — Provenance Graph 기반 실시간 보안 관제 AI 기술 명세서
+# KoTon — Real-Time Provenance Graph Intrusion Detection System
+
+## 1. 프로젝트 개요 및 현재 목표
+**KoTon**은 Linux 커널의 `auditd` 로그를 실시간 이종 Provenance Graph로 변환하고, Multi-Task Heterogeneous GNN을 통해 알 수 없는 이상 행위(Anomaly)와 알려진 공격 단계(Multi-Class)를 동시에 탐지하는 보안 관제 시스템이다.
 
 ---
 
-## 1. 시스템 디렉터리 및 데이터 무결성 정책
+## 2. 데이터셋 명세, 보존 원칙
 
-| 구분 | 경로 | 역할 및 제약 사항 |
-| :--- | :--- | :--- |
-| **Raw Metadata & Rules** | `data/fox/dataset.yaml`<br>`data/fox/rules/*.yaml` | AIT-LDS v2.0 `fox` 시나리오(`2022-01-15`~`01-20`) 메타데이터 및 Kyoushi 기반 EQL 공격 규칙 정의. |
-| **Host Logs (`gather/`)** | `data/fox/gather/<host>/logs/` | 7개 호스트(`cloud_share`, `inet-firewall`, `internal_share`, `intranet_server`, `mail`, `vpn`, `webserver`) 격리 로그 (`audit/audit.log` 24,082줄 및 `apache2`, `dnsmasq`, `auth`, `openvpn`, `logstash` 데몬 로그). |
-| **Ground Truth (`labels/`)** | `data/fox/labels/<host>/logs/` | `gather/`와 대칭 구조. JSONL의 1-based `line` 필드를 통해 원본 로그 라인과 세부 공격 라벨 1:1 매핑. |
-| **Read-Only Isolation** | `configs/default.yaml`<br>`processed/fox/`, `artifacts/`, `checkpoints/` | 원본 `data/` 디렉터리 내 쓰기 및 캐시 생성 전면 금지. 전처리 텐서(`.pt`), FastText 모델, 가중치, 추론 샘플 JSON은 외부 경로에만 산출. |
+### 메인 데이터셋: AIT-LDS v2.0
+Linux 네이티브 auditd 로그와 다중 클래스 GT을 제공하는 AIT-LDS v2.0을 메인 데이터셋으로 채택
+- 선정 사유: 실제 엔터프라이즈 가상 환경에서 수집된 8개의 시나리오로 구성되며, OS 커널의 순정 auditd 로그를 그대로 포함합니다.
+- 공격 클래스 다양성: 단순 이진 탐지를 넘어 Reconnaissance (Nmap/Dirb 스캔), Initial Access (웹셸/익스플로잇), Privilege Escalation (권한 상승), Credential Access (패스워드 크래킹/브루트포스), Exfiltration (데이터 유출) 등 시연 임팩트가 확실한 다중 공격 단계(Multi-stage) 라벨을 모두 포함합니다.
 
----
-
-## 2. 데이터 파싱 및 그래프 전처리 파이프라인
-
-### 2.1 멀티라인 스트리밍 및 무결성 보장
-* **호스트 데몬 로그 선택적 브리지 (`src/parser/streaming_parser.py`, `configs/default.yaml`)**
-  * `audit.rules`의 `-D`(커널 syscall 감사 비활성화) 설정으로 인해 `audit.log` 단독으로는 Class 4·5(21줄)만 확보 가능함.
-  * Class 1(`scans`), Class 2(`webshell`), Class 3(`cracking`) 확보를 위해 대칭 경로의 `apache2`, `dnsmasq`, `logstash` 로그를 통합하는 설정 제어형 브리지(`include_supplementary_logs`) 적용.
-* **누수 방지 메타데이터 추출 (`src/parser/parser.py`)**
-  * `extract_audit_meta()`로 밀리초 단위 Unix Epoch 및 `serial_id` 추출 직후 `strip_audit_timestamp()`로 원문의 절대 시각·시리얼 헤더를 소거하여 모델의 시간 암기(Data Leakage) 차단.
-* **Stateful Carry-over 청크 병합 (`src/parser/streaming_parser.py`)**
-  * 8,000줄 단위 스트리밍 환경에서 `(host_id, serial_id)` 키를 기준으로 `SYSCALL`, `EXECVE`, `CWD`, `PATH`, `SOCKADDR`, `PROCTITLE`, `AVC`, `USER_CMD` 레코드를 단일 이벤트로 병합.
-  * `EOE` 미수신 레코드 및 청크 말미 2초 이내 미완성 이벤트는 다음 청크로 이월(Carry-over)하여 경계 절단 방지.
-* **인과 보존 안정 정렬 및 프로세스 격리 (`src/parser/streaming_parser.py`)**
-  * **Stable Sort:** 동일 밀리초 내 이벤트 순서 보존을 위해 `(timestamp, original_index, event)` 튜플 정렬을 수행하여 전체 엣지의 $\Delta t \ge 0$ 보장.
-  * **Identity Isolation:** 모든 토폴로지 키에 `host_id`를 포함하고, 프로세스를 `(host_id, pid, exec_version)`으로 식별(`execve` 또는 바이너리 변경 시 `exec_version` 증가)하여 Cross-Host PID 충돌 및 PID 재사용 오염 제거.
-
-### 2.2 라벨링, 정제 및 그래프 압축
-* **2단계 결합 라벨링 (`src/data/phases.py`, `src/data/taxonomy.py`, `configs/taxonomy.yaml`)**
-  * 1단계(JSONL 1-based 악성 판정)와 2단계(`ScenarioPhaseMatcher` 기반 공격 구간 매칭: 1월 17일 `service_stop`/`dnsteal` 및 1월 18일 본 공격)를 결합해 6-Class(`0~5`) 부여.
-  * 라벨 충돌 시 9종 우선순위 리스트를 적용하며, `RAW_PHASES` 외부 악성 이벤트(`dnsmasq.log` 사전 `dnsteal` 등)는 경고 로깅 후 JSONL 세부 라벨 매핑 우선 적용.
-* **경계 기반 Path Sanitizer (`src/graph/sanitizer.py`)**
-  * 정규식 `(?<![a-zA-Z])<token>(?![a-zA-Z])`을 적용해 시나리오·호스트명(`fox-access.log` $\rightarrow$ `-access.log`)만 마스킹하고, 정상 바이너리 경로(`/usr/bin/firefox`)의 부분 문자열 훼손 방지.
-* **Causality-Preserving Reduction (CPR) (`src/graph/cpr.py`)**
-  * 동일 `(src_process, read|write, dst_file)` 쌍에서 $0 \le \Delta t < 1.0\text{s}$ 내 연속 발생, 중간 타 프로세스의 동일 파일 개입 부재, 동일 라벨 조건을 모두 충족하는 버스트 엣지를 병합하고 `cpr_count` 누적(`fox` 기준 16.30%~22.87% 압축률 달성).
-* **슬라이딩 윈도우 및 순수 정상 마스크 (`src/graph/builder.py`)**
-  * 180초 윈도우·60초 스트라이드로 서브그래프 생성. `ScenarioPhaseMatcher.is_clean_benign_window()` 통과와 윈도우 내 악성 엣지 0건(`edge_y == 0`)을 동시 충족할 때만 `is_clean_benign_window = True`를 부여해 정상 학습 구간의 오염 원천 차단.
+### 추후 확장 데이터셋: CAM-LDS (2026)
+- 7개 Linux 공격 시나리오, 순정 `auditd` 로그, **13개 MITRE ATT&CK Tactics** 및 **81개 Techniques** 라벨 제공.
+- 추후 코드 수정 없이 결합할 수 있도록 분리 설계함.
 
 ---
 
-## 3. 이종 그래프(HeteroGraph) 피처 엔지니어링 스펙
-
-> **Zero-Leakage 원칙:** `host_id`, `pid`, 절대 시각은 모든 입력 텐서에서 배제되며, 노드 차수(`in_deg`, `out_deg`)와 연결 빈도는 현재 윈도우 스냅샷 내부에서만 산출하여 Future Leakage를 차단한다.
+## 3. 이종 Feature 인코딩
+**노드 타입별 고유 차원(Type-Specific Input Dimensions)**을 유지한 뒤 모델 입력단의 타입별 선형 투영(`68/36/20 -> 128-dim`) + `LayerNorm` + `GELU`으로 공통 128차원 잠재 공간에 정합시킨다. 절대 타임스탬프, 호스트명, 임시 PID는 Data Leakage 방지를 위해 Feature에서 제외한다.
 
 | 엔티티 타입 | 차원 | 세부 피처 구성 명세 (`src/graph/encoder.py`, `src/graph/builder.py`) |
 | :--- | :---: | :--- |
@@ -54,62 +30,63 @@
 
 ---
 
-## 4. 모델 아키텍처 및 학습·보정 프로토콜
+## 4. 개발 환경
 
-### 4.1 Edge-Aware Multi-Task HeteroGNN (`src/models/hetero_gnn.py`)
-1. **Input Projection:** 노드 타입별 선형 투영(`68/36/20 -> 128-dim`) + `LayerNorm` + `GELU`.
-2. **Relational Backbone:** 10종 정·역방향 관계별 `GATv2Conv(128, 32, heads=4, edge_dim=2, add_self_loops=False)`를 적용한 2-Layer `HeteroConv` (Residual Connection + `LayerNorm` + `GELU`).
-3. **Dual Task Heads:**
-   * **Task 1 (Anomaly Reconstruction):** 타입별 경량 복원 디코더(`128 -> 68/36/20`).
-   * **Task 2 (Attack Stage Classification):** 양 끝단 노드 임베딩 및 `edge_attr` 결합(`128 + 128 + 2 = 258-dim`) 기반 6-Class 엣지 분류 MLP.
-
-### 4.2 손실 함수 및 학습·추론 스케일링 (`src/models/losses.py`, `src/models/trainer.py`)
-* **Multi-Task Objective:**
-  $$\mathcal{L}_{\text{total}} = \mathbb{I}(\text{clean\_benign}) \cdot \mathcal{L}_{\text{recon}} + \lambda \cdot \mathcal{L}_{\text{cls}}$$
-  * **$\mathcal{L}_{\text{recon}}$ (Task 1):** Scaled Cosine Error($\gamma=3.0$) + MSE. `is_clean_benign_window == True` 구간에서만 타입별 노드 50%를 학습 가능 마스크 토큰으로 치환하여 역전파(악성 구간 복원 손실 `0.0` 강제).
-  * **$\mathcal{L}_{\text{cls}}$ (Task 2):** 로그 역빈도 클래스 가중치를 적용한 Multi-Class Focal Loss($\gamma=2.0$). 비마스킹(Unmasked) 원본 임베딩을 사용하여 분류 정확도 보존.
-* **데이터 분할 및 추론 캘리브레이션 (`scripts/verify_pipeline.py`):**
-  * 윈도우 대표 Tactic 기준 Stratified Split(`70:15:15`) 수행 후 Train Split으로만 FastText 적합.
-  * Optimizer: `AdamW` + Gradient Clipping(`max_norm=2.0`).
-  * **Anomaly Score Calibration:** 학습 완료 후 순수 정상 윈도우에 대해 결정론적 2-Fold 50% 마스킹 복원 오차의 95분위수(95th Percentile)를 산출하여 `recon_scale` 보정 상수로 확정.
+- **OS / Runtime:** Windows + WSL2
+- **가상환경:** `requirements.txt` 참고
 
 ---
 
-## 5. 서빙 인터페이스 및 데이터셋 확장 규격
+## 5. 단계별 상세 구현 진행도
 
-### 5.1 Three.js / Flask 실시간 추론 API (`src/serving/engine.py`)
-* **호출 인터페이스:** `KoTonInferenceEngine(model, taxonomy, recon_scale)` 인스턴스화 후 `predict_window(hetero_data)`(`dict`) 또는 `to_threejs_json(hetero_data)`(`str`) 호출.
-* **후처리 규칙:** RFC1918 대역 판별 기반 세션 일관 익명 별칭(`int_host_0`, `ext_host_0`) 부여 및 인접 엣지 최대 위험도 기준 노드별 6-Class Tactic 집계.
-* **출력 스키마 (`artifacts/sample_threejs_graph.json`):**
-  ```json
-  {
-    "timestamp": "<float: Unix Epoch ms>",
-    "nodes": [
-      {
-        "id": "<string: <host>_<type>_<identifier>>",
-        "type": "<string: process | file | socket>",
-        "label": "<string: executable_path | file_path | int_host_N/  ext_host_N (ip:port)>",
-        "anomaly_score": "<float: calibrated reconstruction score>",
-        "attack_class": "<string: benign | 6-Class Tactic name>",
-        "is_malicious": "<boolean>"
-      }
-    ],
-    "edges": [
-      {
-        "source": "<string: source node id>",
-        "target": "<string: target node id>",
-        "type": "<string: execute | read | write | fork | connect>",
-        "count": "<int: cpr_count>",
-        "attack_class": "<string: benign | 6-Class Tactic name>",
-        "is_attack_path": "<boolean>"
-      }
-    ]
-  }
-  ```
+### ☑ Step 1: 환경 설정 및 데이터셋 분석
+### ☑ Step 2: `auditd` 멀티라인 병합 파서 제작 및 타임스탬프 일치
+### ☑ Step 3: Feature 인코딩, 라벨 매핑
+### ☑ Step 4: 모델 구현 ([상세 정보](./MODEL.md))
+### ☑ Step 5: 프론트엔드 연동을 위한 모델 인터페이스 모듈화
+### ☐ Step 6: AIT-LDS v2.0 전체 시나리오 확장 및 모델 최적화
+- **전체 시나리오 통합 전처리 (`data/` 읽기 전용 유지):**
+  - `data/` 하위에 추가되는 AIT-LDS v2.0의 나머지 6개 시나리오(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`)를 기존 파이프라인으로 일괄 전처리하여 `processed/<scenario_name>/`에 직렬화(`.pt`).
+  - 시나리오 간 일반화 성능 검증을 위해 **LOOCV**, 시나리오 단위 Train/Val/Test 분할 적용.
+- **하이퍼파라미터 및 손실 함수 최적화:**
+  - `Optuna`를 통해 최적화.
+  - 목표 성능 지표: 
+  - 최적 가중치 저장, 추론 속도 최적화.
 
-### 5.2 타 벤치마크 데이터셋 확장 가이드
+### ☐ Step 7: `false_positive_test` 분석 및 동적 임계치 산정 (`scripts/calibrate_threshold.py`)
+- AIT-LDS v2.0의 순수 정상 구간(`false_positive_test`)에서 Anomaly Score($\mathcal{L}_{recon}$) 분포를 추출하라.
+- 백분위수 및 $\mu + k\sigma$ 기반으로 **FPR < 1%**인 `default_threshold`와 데모 슬라이더용 조절 범위(`[min_threshold, max_threshold]`)를 산출해 `configs/threshold_profile.json`에 저장.
 
-| 대상 데이터셋 | 수정 대상 파일 | 확장 및 적용 절차 |
-| --- | --- | --- |
-| **AIT-LDS v2.0 타 시나리오**(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`) | `src/data/phases.py`, `configs/default.yaml` | `wheeler`를 제외한 6개 시나리오의 UTC 공격 단계 구간을 `RAW_PHASES`에 등록하고 `default.yaml`의 대상 시나리오명을 변경하여 코어 코드 수정 없이 파이프라인 실행. |
-| **CAM-LDS (2026)**(순정 커널 `auditd` 환경) | `configs/default.yaml`, `configs/taxonomy.yaml`, `src/data/taxonomy.py` | `default.yaml`에서 `include_supplementary_logs: false`로 설정해 멀티라인 `auditd` 파서 단독 구동. `taxonomy.yaml`의 `cam_lds.mitre_tactics` 및 `techniques` 매핑을 편집하여 `LabelTaxonomy.map_cam_lds_label()`로 통합. |
+### ☐ Step 8: WSL2 기반 실시간 `auditd` 수집 및 추론 엔진 완성 (`src/collector/`, `src/serving/`)
+- **WSL2 `auditd` 실시간 수집 데몬 (`src/collector/audit_stream.py`):**
+  - 설치된 WSL2 환경에서 시스템 콜을 로깅하도록 `auditctl` 규칙을 구성.
+  - audit log를 실시간으로 Tail하여 스트림으로 전달.
+- **실시간 추론 엔진 고도화 (`src/serving/engine.py`):**
+  - `KoTonInferenceEngine`에 **Sliding Window Graph Buffer** 및 **Online CPR**을 통합.
+  - 이벤트 수신 $\rightarrow$ 인코딩 $\rightarrow$ 추론 $\rightarrow$ **Attack Subgraph 추출** $\rightarrow$ 직렬화까지의 End-to-End 지연 시간을 **500ms 이하**로 최적화.
+
+### ☐ Step 9: Flask + Three.js 3D 보안 관제 및 Dual-Window 데모 (`web/`)
+- **Flask-SocketIO 백엔드 (`web/app.py`):**
+  - `Flask` + `Flask-SocketIO` (비동기 모드: `threading`)를 사용하여 `KoTonInferenceEngine`의 추론 결과를 WebSocket 이벤트(`graph_update`, `attack_alert`)로 프론트엔드에 실시간 반영.
+  - **임계치 동적 상호작용 API:** 프론트엔드 슬라이더에서 전송된 신규 임계치(`update_threshold` 이벤트)를 수신하여 서버 재시작 없이 즉시 이상치 판정 기준과 `is_malicious` / `is_attack_path` 플래그를 재계산·반영.
+- **Three.js 3D 프론트엔드 (`web/static/`, `web/templates/`):**
+  - `Three.js` (또는 Three.js 기반 `3d-force-graph`)로 실시간 3D Provenance Cloud를 렌더링하라.
+  - **Dual-Window 데모 레이아웃:** Window A에 3D 관제 대시보드(3D 그래프, 실시간 임계치 조절 슬라이더)를 배치하고, Window B에 공격자 WSL2 터미널 창을 병렬 배치하여 시연 가능하도록 구성.
+
+### ☐ Step 10: 라이브 공격 시나리오 스크립트 및 3D 비주얼 고도화
+- **재현 가능한 다중 단계 공격 스크립트 (`scripts/demo_attack.sh`):**
+  - WSL2 환경에서 안전하게 실행 가능하며 AIT-LDS v2.0의 공격 패턴을 선택해 실제 실행하는 라이브 시연 스크립트 작성:
+    1. `Scan`: 로컬 포트/디렉터리 스캔
+    2. `Webshell / RCE`: 역방향 셸 또는 비정상 자식 프로세스 체인 생성
+    3. `Privilege Escalation`: 권한 상승 시도 및 `/etc/passwd`·`/etc/shadow` 접근
+    4. `Data Exfiltration`: 민감 파일 압축 및 외부 소켓 전송
+- **3D 비주얼 고도화 (256x256 PNG 아이콘 기반):**
+  - **아이콘 렌더링:** 모든 노드 타입(`Process`, `File`, `Socket`)은 `web/images/`에 배치된 **256×256 PNG 아이콘**(`process.png`, `file.png`, `socket.png`)을 `THREE.TextureLoader`로 사전 로드한 뒤 `THREE.Sprite`로 렌더링. 노드 수가 500~1,500개에 달해도 FPS 저하가 없도록 텍스처 인스턴스를 재사용.
+- **정상 vs. 악성 경로 시각화:**
+  - 정상 노드와 엣지는 낮은 불투명도의 회색 톤으로 배치하여 시각적 노이즈를 최소화.
+  - 탐지된 악성 노드는 아이콘에 **공격 클래스별 컬러 하이라이팅**을 적용(노랑~보라 등 네온 계열)하고, 공격 경로 엣지 위로 **방향성 파티클(Directional Particles)**이 흐르도록 구현하라.
+- **Inspector HUD:** 특정 노드 아이콘 마우스 호버 시 해당 객체의 `cmdline`, `path`, `anomaly_score`, `attack_class`를 표시하는 오버레이 HUD를 구현하라.
+
+### ☐ Step 11: [선택] CAM-LDS 데이터셋 통합 및 강건성 검증
+- `data/` 폴더에 **CAM-LDS** 데이터셋 추가, 기존 `data/` 보존 원칙을 유지한 채 `configs/taxonomy.yaml`에 CAM-LDS의 13 Tactics / 81 Techniques 매핑 테이블 추가.
+- `auditd` 파서를 재사용하여 CAM-LDS를 동일한 84차원 `HeteroData`로 변환하고, AIT-LDS 학습 모델의 Zero-shot 전이 성능 측정 및 Fine-tuning을 통해 모델의 도메인 강건성 검증.
