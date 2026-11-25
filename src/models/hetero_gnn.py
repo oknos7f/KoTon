@@ -300,3 +300,97 @@ class EdgeAwareMultiTaskHeteroGNN(nn.Module):
         if was_training:
             self.train()
         return errors_dict
+
+    @torch.no_grad()
+    def infer_joint_backbone_and_errors(
+        self,
+        data: HeteroData,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        """Run unmasked backbone and 2-fold 50% masked reconstruction in a single 3x block-diagonal pass."""
+        was_training = self.training
+        self.eval()
+        device = next(self.parameters()).device
+
+        batched_x: Dict[str, torch.Tensor] = {}
+        fold0_idx: Dict[str, torch.Tensor] = {}
+        fold1_idx: Dict[str, torch.Tensor] = {}
+        counts: Dict[str, int] = {}
+
+        for ntype in NODE_TYPES:
+            x = data[ntype].x
+            n = x.size(0)
+            counts[ntype] = n
+            if n == 0:
+                batched_x[ntype] = x
+                fold0_idx[ntype] = torch.zeros((0,), dtype=torch.long, device=device)
+                fold1_idx[ntype] = torch.zeros((0,), dtype=torch.long, device=device)
+                continue
+
+            if n == 1:
+                idx0 = torch.tensor([0], dtype=torch.long, device=device)
+                idx1 = torch.zeros((0,), dtype=torch.long, device=device)
+            else:
+                idx0 = torch.arange(0, n, 2, dtype=torch.long, device=device)
+                idx1 = torch.arange(1, n, 2, dtype=torch.long, device=device)
+
+            tok = self.mask_tokens[ntype].to(x.dtype)
+            x0 = x.clone()
+            if idx0.numel() > 0:
+                x0[idx0] = tok.expand(idx0.numel(), -1)
+            x1 = x.clone()
+            if idx1.numel() > 0:
+                x1[idx1] = tok.expand(idx1.numel(), -1)
+
+            batched_x[ntype] = torch.cat([x, x0, x1], dim=0)
+            fold0_idx[ntype] = idx0
+            fold1_idx[ntype] = idx1
+
+        batched_ei: Dict[Tuple[str, str, str], torch.Tensor] = {}
+        batched_ea: Dict[Tuple[str, str, str], torch.Tensor] = {}
+        for etype in ALL_CONV_EDGE_TYPES:
+            ei = data[etype].edge_index
+            ea = data[etype].edge_attr
+            if ei.size(1) == 0:
+                batched_ei[etype] = ei
+                batched_ea[etype] = ea
+                continue
+            src_t, _, dst_t = etype
+            ns = counts[src_t]
+            nd = counts[dst_t]
+            off1 = torch.tensor([[ns], [nd]], dtype=ei.dtype, device=device)
+            batched_ei[etype] = torch.cat([ei, ei + off1, ei + 2 * off1], dim=1)
+            batched_ea[etype] = ea.repeat(3, 1)
+
+        h_all = self.encode_backbone(batched_x, batched_ei, batched_ea)
+
+        h_unmasked: Dict[str, torch.Tensor] = {}
+        errors_dict: Dict[str, torch.Tensor] = {}
+        for ntype in NODE_TYPES:
+            n = counts[ntype]
+            err = torch.zeros((n,), dtype=torch.float32, device=device)
+            if n == 0:
+                h_unmasked[ntype] = h_all[ntype]
+                errors_dict[ntype] = err
+                continue
+
+            h_t = h_all[ntype]
+            h_unmasked[ntype] = h_t[:n]
+            h_f0 = h_t[n : 2 * n]
+            h_f1 = h_t[2 * n : 3 * n]
+            x_orig = data[ntype].x
+
+            idx0 = fold0_idx[ntype]
+            if idx0.numel() > 0:
+                pred0 = self.decoders[ntype](h_f0[idx0])
+                err[idx0] = self.recon_criterion.per_node_error(pred0, x_orig[idx0])
+
+            idx1 = fold1_idx[ntype]
+            if idx1.numel() > 0:
+                pred1 = self.decoders[ntype](h_f1[idx1])
+                err[idx1] = self.recon_criterion.per_node_error(pred1, x_orig[idx1])
+
+            errors_dict[ntype] = err
+
+        if was_training:
+            self.train()
+        return h_unmasked, errors_dict

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KoTon — 3D Provenance Graph Real-Time SOC</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="pulse-dot"></span>
+      <strong>KoTon</strong>
+      <span class="subtitle">Real-Time Provenance GNN SOC (Window A)</span>
+    </div>
+
+    <div class="telemetry-strip">
+      <div class="metric-chip">
+        <span class="label">FPS</span>
+        <span id="stat-fps" class="value cyan">60</span>
+      </div>
+      <div class="metric-chip">
+        <span class="label">GNN Tick</span>
+        <span id="stat-latency" class="value">-- ms</span>
+      </div>
+      <div class="metric-chip">
+        <span class="label">Zero-Reinf</span>
+        <span id="stat-reinf-ms" class="value emerald">&lt;1 ms</span>
+      </div>
+      <div class="metric-chip">
+        <span class="label">Est. FPR</span>
+        <span id="stat-fpr" class="value">0.00%</span>
+      </div>
+      <div class="metric-chip">
+        <span class="label">Nodes / Edges</span>
+        <span id="stat-counts" class="value">0 / 0</span>
+      </div>
+      <div class="metric-chip">
+        <span class="label">VM TCP :9999</span>
+        <span id="stat-vm" class="value cyan">LISTENING</span>
+      </div>
+    </div>
+  </header>
+
+  <aside class="left-panel glass">
+    <h3>Conformal Threshold Control</h3>
+    <div class="control-row">
+      <label for="alpha-slider">Significance (&alpha;): <strong id="alpha-val">0.050</strong></label>
+      <input id="alpha-slider" type="range" min="0.002" max="0.250" step="0.002" value="0.050" />
+      <div class="sub-readout">
+        Calibrated Score Cutoff: <strong id="threshold-val">0.7500</strong>
+      </div>
+    </div>
+
+    <div class="toggle-group">
+      <button id="btn-toggle-logs" class="btn-outline active">Live Audit Log: ON</button>
+      <button id="btn-subgraph-only" class="btn-outline">2-Hop Attack Chain Only: OFF</button>
+      <button id="btn-sim-attack" class="btn-accent">Inject Live Attack Stream</button>
+    </div>
+
+    <h3>Entity Shapes &amp; 6-Class Neon</h3>
+    <ul class="legend-list">
+      <li><span class="shape-icon circle"></span> <strong>Process</strong> (Circle)</li>
+      <li><span class="shape-icon square"></span> <strong>File</strong> (Square)</li>
+      <li><span class="shape-icon diamond"></span> <strong>Socket</strong> (Diamond)</li>
+    </ul>
+    <ul class="tactic-legend">
+      <li><span class="swatch c0"></span> 0: benign (Low-Opacity)</li>
+      <li><span class="swatch c1"></span> 1: scans</li>
+      <li><span class="swatch c2"></span> 2: webshell/reverse_shell</li>
+      <li><span class="swatch c3"></span> 3: cracking</li>
+      <li><span class="swatch c4"></span> 4: privilege_escalation</li>
+      <li><span class="swatch c5"></span> 5: service_stop/dnsteal</li>
+    </ul>
+
+    <div class="vm-box">
+      <div class="vm-title">Window B — Ubuntu VM Terminal</div>
+      <code>ssh -i ~/.koton_vm/id_ed25519 -p 2222 ubuntu@127.0.0.1</code>
+      <code>/home/ubuntu/demo_attack.sh [--1..--5]</code>
+    </div>
+  </aside>
+
+  <div id="live-log-stream" class="live-log-stream" aria-live="polite"></div>
+
+  <div id="inspector-hud" class="inspector-hud glass hidden">
+    <div class="hud-header">
+      <div class="hud-icon-wrap">
+        <img id="hud-single-icon" src="/images/process.png" alt="entity icon" width="44" height="44" />
+      </div>
+      <div class="hud-title-col">
+        <div id="hud-type-badge" class="hud-badge">PROCESS</div>
+        <div id="hud-node-id" class="hud-id">-</div>
+      </div>
+    </div>
+    <div class="hud-body">
+      <div class="hud-row"><span>Path / Cmdline</span><strong id="hud-label">-</strong></div>
+      <div class="hud-row"><span>Anomaly Score</span><strong id="hud-score">-</strong></div>
+      <div class="hud-row"><span>Conformal p-val</span><strong id="hud-pval">-</strong></div>
+      <div class="hud-row"><span>Attack Class</span><strong id="hud-class">-</strong></div>
+    </div>
+  </div>
+
+  <aside class="right-panel glass">
+    <h3>2-Hop Attack Timeline</h3>
+    <div id="alert-timeline" class="timeline-feed">
+      <div class="empty-msg">Waiting for live kernel auditd stream...</div>
+    </div>
+  </aside>
+
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

@@ -128,7 +128,9 @@ class SlidingWindowGraphBuilder:
                 )
                 is_clean_benign = bool(phase_clean and not has_malicious)
                 if mal_tactics:
-                    strat_lbl = Counter(mal_tactics).most_common(1)[0][0]
+                    tactic_freq = Counter(mal_tactics)
+                    rare_priority = (2, 4, 3, 1, 5)
+                    strat_lbl = next((t for t in rare_priority if t in tactic_freq), mal_tactics[0])
                 else:
                     strat_lbl = 0
 
@@ -152,43 +154,43 @@ class SlidingWindowGraphBuilder:
         self,
         windows: List[WindowSpec],
     ) -> Tuple[List[WindowSpec], List[WindowSpec], List[WindowSpec]]:
-        """Perform stratified train/val/test split across windows while guaranteeing tactic coverage."""
+        """Split chronologically ordered sliding windows per tactic into contiguous train/val/test blocks."""
         if len(windows) < 6:
             return windows, windows[:1], windows[-1:]
 
-        indices = np.arange(len(windows))
-        labels = np.array([w.stratify_label for w in windows], dtype=np.int64)
+        by_class: Dict[int, List[int]] = {}
+        for idx, win in enumerate(windows):
+            by_class.setdefault(win.stratify_label, []).append(idx)
 
-        cls_counts = Counter(labels.tolist())
-        rare_classes = {cls for cls, cnt in cls_counts.items() if cnt < 3}
+        train_indices: List[int] = []
+        val_indices: List[int] = []
+        test_indices: List[int] = []
 
-        strat_mask = np.array([lbl not in rare_classes for lbl in labels], dtype=bool)
-        strat_indices = indices[strat_mask]
-        strat_labels = labels[strat_mask]
-        rare_indices = indices[~strat_mask]
+        total_ratio = max(1e-6, self.train_ratio + self.val_ratio + self.test_ratio)
+        tr_frac = self.train_ratio / total_ratio
+        va_frac = self.val_ratio / total_ratio
 
-        holdout_ratio = self.val_ratio + self.test_ratio
-        train_idx, hold_idx, _, hold_lbls = train_test_split(
-            strat_indices,
-            strat_labels,
-            test_size=holdout_ratio,
-            random_state=self.seed,
-            stratify=strat_labels if len(set(strat_labels.tolist())) > 1 else None,
-        )
+        for _, idx_list in sorted(by_class.items()):
+            n = len(idx_list)
+            if n == 1:
+                train_indices.extend(idx_list)
+            elif n == 2:
+                train_indices.append(idx_list[0])
+                test_indices.append(idx_list[1])
+            else:
+                n_val = max(1, int(round(n * va_frac)))
+                n_test = max(1, int(round(n * (1.0 - tr_frac - va_frac))))
+                if n_val + n_test >= n:
+                    n_val = 1
+                    n_test = 1
+                n_train = n - n_val - n_test
+                train_indices.extend(idx_list[:n_train])
+                val_indices.extend(idx_list[n_train : n_train + n_val])
+                test_indices.extend(idx_list[n_train + n_val :])
 
-        hold_counts = Counter(hold_lbls.tolist())
-        can_strat_hold = all(cnt >= 2 for cnt in hold_counts.values()) and len(hold_counts) > 1
-        rel_test = self.test_ratio / max(1e-6, holdout_ratio)
-        val_idx, test_idx = train_test_split(
-            hold_idx,
-            test_size=rel_test,
-            random_state=self.seed,
-            stratify=hold_lbls if can_strat_hold else None,
-        )
-
-        train_list = [windows[i] for i in sorted(train_idx.tolist() + rare_indices.tolist())]
-        val_list = [windows[i] for i in sorted(val_idx.tolist())]
-        test_list = [windows[i] for i in sorted(test_idx.tolist())]
+        train_list = [windows[i] for i in sorted(train_indices)]
+        val_list = [windows[i] for i in sorted(val_indices)]
+        test_list = [windows[i] for i in sorted(test_indices)]
         return train_list, val_list, test_list
 
     def build_window_heterodata(self, window: WindowSpec) -> HeteroData:

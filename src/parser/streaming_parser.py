@@ -448,17 +448,26 @@ class StatefulAuditParser:
                     )
                 )
 
+        seen_file_edges: set[Tuple[str, Tuple]] = set()
+
+        def append_unique_file_edge(edge_type: str, target_path: str) -> None:
+            edge_ev = make_proc_file_edge(edge_type, target_path)
+            sig = (edge_ev.edge_type, edge_ev.dst_key)
+            if sig not in seen_file_edges:
+                seen_file_edges.add(sig)
+                edges.append(edge_ev)
+
         if is_exec:
             cmd_tokens = cmdline.split()
             target_bin = cmd_tokens[0] if cmd_tokens and "/" in cmd_tokens[0] else (
                 f"/usr/bin/{cmd_tokens[0]}" if cmd_tokens else exe
             )
-            edges.append(make_proc_file_edge("execute", target_bin))
+            append_unique_file_edge("execute", target_bin)
             for tok in cmd_tokens[1:]:
                 if tok.startswith("/") or tok.startswith("./") or tok.startswith("../"):
-                    edges.append(make_proc_file_edge("read", tok))
-            if ev.cwd:
-                edges.append(make_proc_file_edge("read", ev.cwd))
+                    append_unique_file_edge("read", tok)
+            if ev.cwd and not ev.paths:
+                append_unique_file_edge("read", ev.cwd)
 
         if ev.sockaddr is not None:
             ip_str, port_num = ev.sockaddr
@@ -483,14 +492,17 @@ class StatefulAuditParser:
             )
 
         if ev.paths:
+            has_non_parent = any(nt != "PARENT" for _, nt in ev.paths)
             for p_str, nametype in ev.paths:
+                if has_non_parent and nametype == "PARENT":
+                    continue
                 if ev.syscall in WRITE_SYSCALLS_X86_64 or nametype in {"CREATE", "DELETE"}:
                     rel = "write"
                 elif ev.syscall in EXEC_SYSCALLS_X86_64:
                     rel = "execute"
                 else:
                     rel = "read"
-                edges.append(make_proc_file_edge(rel, p_str))
+                append_unique_file_edge(rel, p_str)
 
         if "SERVICE_START" in rec_set or "SERVICE_STOP" in rec_set:
             unit_name = ev.unit or "unknown.service"

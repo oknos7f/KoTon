@@ -56,7 +56,7 @@
 
 ## 4. 모델 아키텍처 및 학습·보정 프로토콜
 
-![Model](./image.png)
+![Model](./model_image.png)
 
 ### 4.1 Edge-Aware Multi-Task HeteroGNN (`src/models/hetero_gnn.py`)
 1. **Input Projection:** 노드 타입별 선형 투영(`68/36/20 -> 128-dim`) + `LayerNorm` + `GELU`.

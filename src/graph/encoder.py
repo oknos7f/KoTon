@@ -95,6 +95,35 @@ class HeterogeneousFeatureEncoder:
         self._file_hasher = FeatureHasher(n_features=file_path_dim, input_type="string", alternate_sign=True)
         self._ip_hasher = FeatureHasher(n_features=sock_ip_dim, input_type="string", alternate_sign=True)
         self.cmd_model: Optional[FastText] = None
+        self._tok_vec_cache: Dict[str, np.ndarray] = {}
+        self._cmd_cache: Dict[str, tuple[np.ndarray, float]] = {}
+        self._exe_cache: Dict[str, np.ndarray] = {}
+        self._file_cache: Dict[str, tuple[np.ndarray, float, float]] = {}
+        self._ip_cache: Dict[str, tuple[np.ndarray, float]] = {}
+
+    def _clear_feature_caches(self) -> None:
+        """Reset memoized token and path feature caches when FastText weights change."""
+        self._tok_vec_cache.clear()
+        self._cmd_cache.clear()
+
+    def _warm_vocab_cache(self) -> None:
+        """Pre-populate token vector cache from FastText vocabulary vectors to avoid runtime n-gram recomputation."""
+        self._clear_feature_caches()
+        if self.cmd_model is None:
+            return
+        wv = self.cmd_model.wv
+        if getattr(wv, "vectors", None) is None and hasattr(wv, "adjust_vectors"):
+            try:
+                wv.adjust_vectors()
+            except Exception:
+                pass
+        mat = getattr(wv, "vectors", None)
+        if mat is None:
+            mat = getattr(wv, "vectors_vocab", None)
+        if mat is not None and hasattr(wv, "key_to_index"):
+            for tok, idx in wv.key_to_index.items():
+                if idx < len(mat):
+                    self._tok_vec_cache[tok] = np.asarray(mat[idx], dtype=np.float32)
 
     def fit_cmdline_embedder(
         self,
@@ -122,6 +151,7 @@ class HeterogeneousFeatureEncoder:
             seed=self.seed,
             epochs=epochs,
         )
+        self._warm_vocab_cache()
 
     def save_cmdline_embedder(self, model_path: str | Path) -> None:
         """Persist trained FastText cmdline embedder to artifacts directory."""
@@ -133,15 +163,35 @@ class HeterogeneousFeatureEncoder:
     def load_cmdline_embedder(self, model_path: str | Path) -> None:
         """Load pre-trained FastText cmdline embedder from disk."""
         self.cmd_model = FastText.load(str(model_path))
+        self._warm_vocab_cache()
 
-    def _embed_cmdline(self, cmdline: str) -> np.ndarray:
-        """Embed sanitized process cmdline tokens into a 48-dim float32 vector."""
+    def _embed_cmdline_and_entropy(self, cmdline: str) -> tuple[np.ndarray, float]:
+        """Embed sanitized process cmdline into a 48-dim float32 vector and compute Shannon entropy with caching."""
+        cached = self._cmd_cache.get(cmdline)
+        if cached is not None:
+            return cached
+
         clean_cmd = self.sanitizer.sanitize_text(cmdline)
+        entropy = compute_shannon_entropy(clean_cmd)
         toks = [t for t in clean_cmd.split() if t]
         if not toks or self.cmd_model is None:
-            return np.zeros(self.proc_cmd_dim, dtype=np.float32)
-        vecs = [self.cmd_model.wv[tok] for tok in toks]
-        return np.mean(vecs, axis=0).astype(np.float32)
+            vec = np.zeros(self.proc_cmd_dim, dtype=np.float32)
+        else:
+            wv = self.cmd_model.wv
+            vecs: List[np.ndarray] = []
+            for tok in toks:
+                tv = self._tok_vec_cache.get(tok)
+                if tv is None:
+                    tv = np.asarray(wv[tok], dtype=np.float32)
+                    if len(self._tok_vec_cache) < 32768:
+                        self._tok_vec_cache[tok] = tv
+                vecs.append(tv)
+            vec = np.mean(vecs, axis=0).astype(np.float32)
+
+        out = (vec, entropy)
+        if len(self._cmd_cache) < 16384:
+            self._cmd_cache[cmdline] = out
+        return out
 
     def encode_process_nodes(
         self,
@@ -151,22 +201,37 @@ class HeterogeneousFeatureEncoder:
         if not records:
             return np.zeros((0, self.proc_exe_dim + self.proc_cmd_dim + 4), dtype=np.float32)
 
-        exe_tokens = [
-            extract_path_hierarchy_tokens(self.sanitizer.sanitize_path(r["exe"])) for r in records
-        ]
-        exe_hfh = self._exe_hasher.transform(exe_tokens).toarray().astype(np.float32)
+        n = len(records)
+        out = np.zeros((n, self.proc_exe_dim + self.proc_cmd_dim + 4), dtype=np.float32)
+        missing_exes: List[str] = []
+        for r in records:
+            raw_exe = r["exe"]
+            if raw_exe not in self._exe_cache:
+                missing_exes.append(raw_exe)
+        if missing_exes:
+            uniq_exes = list(dict.fromkeys(missing_exes))
+            toks_batch = [extract_path_hierarchy_tokens(self.sanitizer.sanitize_path(e)) for e in uniq_exes]
+            hfh_batch = self._exe_hasher.transform(toks_batch).toarray().astype(np.float32)
+            for e_str, row_vec in zip(uniq_exes, hfh_batch):
+                if len(self._exe_cache) < 16384:
+                    self._exe_cache[e_str] = row_vec
 
-        cmd_embs = np.vstack([self._embed_cmdline(r["cmdline"]) for r in records]).astype(np.float32)
-
-        struct_feats = np.zeros((len(records), 4), dtype=np.float32)
+        d_exe = self.proc_exe_dim
+        d_cmd = self.proc_cmd_dim
         for i, r in enumerate(records):
-            clean_cmd = self.sanitizer.sanitize_text(r["cmdline"])
-            struct_feats[i, 0] = math.log1p(r["in_deg"])
-            struct_feats[i, 1] = math.log1p(r["out_deg"])
-            struct_feats[i, 2] = compute_shannon_entropy(clean_cmd)
-            struct_feats[i, 3] = 1.0 if int(r["uid"]) == 0 else 0.0
+            exe_vec = self._exe_cache.get(r["exe"])
+            if exe_vec is None:
+                toks = extract_path_hierarchy_tokens(self.sanitizer.sanitize_path(r["exe"]))
+                exe_vec = self._exe_hasher.transform([toks]).toarray()[0].astype(np.float32)
+            cmd_vec, entropy = self._embed_cmdline_and_entropy(r["cmdline"])
+            out[i, :d_exe] = exe_vec
+            out[i, d_exe : d_exe + d_cmd] = cmd_vec
+            out[i, d_exe + d_cmd] = math.log1p(r["in_deg"])
+            out[i, d_exe + d_cmd + 1] = math.log1p(r["out_deg"])
+            out[i, d_exe + d_cmd + 2] = entropy
+            out[i, d_exe + d_cmd + 3] = 1.0 if int(r["uid"]) == 0 else 0.0
 
-        return np.concatenate([exe_hfh, cmd_embs, struct_feats], axis=1).astype(np.float32)
+        return out
 
     def encode_file_nodes(
         self,
@@ -176,20 +241,37 @@ class HeterogeneousFeatureEncoder:
         if not records:
             return np.zeros((0, self.file_path_dim + 4), dtype=np.float32)
 
-        sanitized_paths = [self.sanitizer.sanitize_path(r["path"]) for r in records]
-        path_tokens = [extract_path_hierarchy_tokens(sp) for sp in sanitized_paths]
-        path_hfh = self._file_hasher.transform(path_tokens).toarray().astype(np.float32)
+        n = len(records)
+        d_fp = self.file_path_dim
+        out = np.zeros((n, d_fp + 4), dtype=np.float32)
+        missing_paths = [r["path"] for r in records if r["path"] not in self._file_cache]
+        if missing_paths:
+            uniq_paths = list(dict.fromkeys(missing_paths))
+            sanitized_list = [self.sanitizer.sanitize_path(p) for p in uniq_paths]
+            toks_batch = [extract_path_hierarchy_tokens(sp) for sp in sanitized_list]
+            hfh_batch = self._file_hasher.transform(toks_batch).toarray().astype(np.float32)
+            for raw_p, sp, row_vec in zip(uniq_paths, sanitized_list, hfh_batch):
+                depth = float(len([seg for seg in sp.split("/") if seg]))
+                is_sens = 1.0 if any(sp == pref or sp.startswith(pref + "/") for pref in self.sensitive_prefixes) else 0.0
+                if len(self._file_cache) < 32768:
+                    self._file_cache[raw_p] = (row_vec, depth, is_sens)
 
-        struct_feats = np.zeros((len(records), 4), dtype=np.float32)
-        for i, (r, sp) in enumerate(zip(records, sanitized_paths)):
-            depth = len([seg for seg in sp.split("/") if seg])
-            is_sens = any(sp == pref or sp.startswith(pref + "/") for pref in self.sensitive_prefixes)
-            struct_feats[i, 0] = math.log1p(r["in_deg"])
-            struct_feats[i, 1] = math.log1p(r["out_deg"])
-            struct_feats[i, 2] = float(depth)
-            struct_feats[i, 3] = 1.0 if is_sens else 0.0
+        for i, r in enumerate(records):
+            cached = self._file_cache.get(r["path"])
+            if cached is None:
+                sp = self.sanitizer.sanitize_path(r["path"])
+                row_vec = self._file_hasher.transform([extract_path_hierarchy_tokens(sp)]).toarray()[0].astype(np.float32)
+                depth = float(len([seg for seg in sp.split("/") if seg]))
+                is_sens = 1.0 if any(sp == pref or sp.startswith(pref + "/") for pref in self.sensitive_prefixes) else 0.0
+            else:
+                row_vec, depth, is_sens = cached
+            out[i, :d_fp] = row_vec
+            out[i, d_fp] = math.log1p(r["in_deg"])
+            out[i, d_fp + 1] = math.log1p(r["out_deg"])
+            out[i, d_fp + 2] = depth
+            out[i, d_fp + 3] = is_sens
 
-        return np.concatenate([path_hfh, struct_feats], axis=1).astype(np.float32)
+        return out
 
     def encode_socket_nodes(
         self,

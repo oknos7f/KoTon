@@ -1,0 +1,31 @@
+2026-11-26 02:00:12,594 [INFO] koton.web: Loaded trained checkpoint from /mnt/c/Users/dongmin/Desktop/KoTon/checkpoints/fox_hetero_gnn.pt (device=cuda)
+2026-11-26 02:00:13,446 [INFO] src.collector.audit_stream: AuditStreamCollector TCP listening on 0.0.0.0:9999
+2026-11-26 02:00:13,446 [INFO] src.collector.audit_stream: AuditStreamCollector Unix socket listening on /tmp/koton_audit.sock
+[KoTon-VM] Booted isolated Ubuntu VM (PID 686).
+[KoTon-VM] Connect Window B with: ssh -i ~/.koton_vm/id_ed25519 -p 2222 ubuntu@127.0.0.1
+2026-11-26 02:00:13,575 [INFO] verify_live_vm: Waiting for Ubuntu VM SSH (127.0.0.1:2222)...
+2026-11-26 02:00:29,641 [INFO] verify_live_vm: Connected to Ubuntu VM! Guest kernel: 6.8.0-147-generic
+2026-11-26 02:00:30,953 [INFO] verify_live_vm: Active VM kernel auditd rules:
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+2026-11-26 02:00:32,574 [INFO] verify_live_vm: Idle heartbeat & auditd forwarder stream confirmed on host collector.
+2026-11-26 02:00:32,579 [INFO] verify_live_vm: Testing parameterized scenario '/home/ubuntu/demo_attack.sh --1'...
+2026-11-26 02:00:35,425 [INFO] verify_live_vm: [Stage --1 Verified] Raw logs=80 | Added nodes=213 | Tick=176.61 ms
+2026-11-26 02:00:35,425 [INFO] verify_live_vm: Testing full sequential '/home/ubuntu/demo_attack.sh' (Stages 1..5)...
+2026-11-26 02:00:37,103 [INFO] verify_live_vm: VM Full Scenario Output:
+============================================================
+ [KoTon Live Scenario Simulator] Multi-Stage Provenance
+ Host: ubuntu-vm | Kernel: 6.8.0-147-generic | User: ubuntu
+============================================================
+[Mode] Sequential Full Chain (slow observable mode: stage_delay=0.15s, substep_delay=0.04s)
+[Stage 1/5] Reconnaissance & Port/Directory Scan (Class 1: scans)...
+  -> Stage 1 completed.
+[Stage 2/5] Webshell Drop & Child RCE Chain (Class 2: webshell/reverse_shell)...
+  -> Stage 2 completed.
+[Stage 3/5] Credential Hash Dictionary Cracking (Class 3: cracking)...
+  -> Stage 3 completed.
+[Stage 4/5] Privilege Escalation & Credential Access (Class 4: privilege_escalation)...
+  -> Stage 4 completed.
+[Stage 5/5] Sensitive Archive & Socket Exfiltration (Class 5: service_stop/dnsteal)...
+  -> Stage 5 completed.
+[KoTon Live Scenario Simulator] Execution finished.
+2026-11-26 02:00:38,195 [INFO] verify_live_vm: [LIVE VM END-TO-END PASSED] Cold Burst=47.47 ms | Steady Tick=39.29 ms | Nodes=364 | Edges=1390 | Online CPR=14.30% | Attack Detected=True (privilege_escalation, 359 subgraph nodes)

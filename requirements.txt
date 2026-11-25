@@ -7,3 +7,6 @@ gensim>=4.3.2
 pytz>=2024.1
 tqdm>=4.66.0
 pyyaml>=6.0.1
+flask>=3.0.0
+flask-socketio>=5.3.6
+pillow>=10.2.0

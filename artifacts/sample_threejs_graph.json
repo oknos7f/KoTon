@@ -1,51 +1,11 @@
 {
-  "timestamp": 1642204918.0,
+  "timestamp": 1642379038.0,
   "nodes": [
     {
       "id": "inet-dns_proc_900002_v1",
       "type": "process",
       "label": "/usr/sbin/dnsmasq",
-      "anomaly_score": 0.5274,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "monitoring_proc_900003_v1",
-      "type": "process",
-      "label": "/usr/share/logstash/bin/logstash",
-      "anomaly_score": 0.0565,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "cloud_share_proc_5790_v1",
-      "type": "process",
-      "label": "/usr/sbin/cron",
-      "anomaly_score": 0.7647,
-      "attack_class": "benign",
-      "is_malicious": true
-    },
-    {
-      "id": "cloud_share_proc_1_v1",
-      "type": "process",
-      "label": "/lib/systemd/systemd",
-      "anomaly_score": 0.9846,
-      "attack_class": "benign",
-      "is_malicious": true
-    },
-    {
-      "id": "cloud_share_proc_5790_v2",
-      "type": "process",
-      "label": "/sbin/init",
-      "anomaly_score": 0.6256,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "cloud_share_proc_5790_v3",
-      "type": "process",
-      "label": "/usr/sbin/cron",
-      "anomaly_score": 0.5407,
+      "anomaly_score": 0.5212,
       "attack_class": "benign",
       "is_malicious": false
     },
@@ -53,39 +13,23 @@
       "id": "inet-firewall_proc_900002_v1",
       "type": "process",
       "label": "/usr/sbin/dnsmasq",
-      "anomaly_score": 0.9134,
+      "anomaly_score": 0.7796,
       "attack_class": "service_stop/dnsteal",
       "is_malicious": true
+    },
+    {
+      "id": "monitoring_proc_900003_v1",
+      "type": "process",
+      "label": "/usr/share/logstash/bin/logstash",
+      "anomaly_score": 0.0026,
+      "attack_class": "benign",
+      "is_malicious": false
     },
     {
       "id": "monitoring_file_proc_stat",
       "type": "file",
       "label": "/proc/stat",
-      "anomaly_score": 0.0005,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "cloud_share_file_etc_passwd",
-      "type": "file",
-      "label": "/etc/passwd",
-      "anomaly_score": 0.2362,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "cloud_share_file_etc_security_limits_conf",
-      "type": "file",
-      "label": "/etc/security/limits.conf",
-      "anomaly_score": 0.2381,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "cloud_share_file_var_run_utmp",
-      "type": "file",
-      "label": "/var/run/utmp",
-      "anomaly_score": 0.2767,
+      "anomaly_score": 0.0021,
       "attack_class": "benign",
       "is_malicious": false
     },
@@ -93,15 +37,7 @@
       "id": "inet-dns_sock_192_168_130_77_53",
       "type": "socket",
       "label": "int_host_0 (192.168.130.77:53)",
-      "anomaly_score": 0.1112,
-      "attack_class": "benign",
-      "is_malicious": false
-    },
-    {
-      "id": "inet-dns_sock_195_128_194_168_53",
-      "type": "socket",
-      "label": "ext_host_0 (195.128.194.168:53)",
-      "anomaly_score": 0.1037,
+      "anomaly_score": 0.1083,
       "attack_class": "benign",
       "is_malicious": false
     },
@@ -109,15 +45,23 @@
       "id": "inet-firewall_sock_10_35_33_111_53",
       "type": "socket",
       "label": "int_host_1 (10.35.33.111:53)",
-      "anomaly_score": 0.9068,
+      "anomaly_score": 0.6503,
       "attack_class": "service_stop/dnsteal",
       "is_malicious": true
+    },
+    {
+      "id": "inet-dns_sock_195_128_194_168_53",
+      "type": "socket",
+      "label": "ext_host_0 (195.128.194.168:53)",
+      "anomaly_score": 0.1905,
+      "attack_class": "benign",
+      "is_malicious": false
     },
     {
       "id": "inet-dns_sock_192_168_128_4_53",
       "type": "socket",
       "label": "int_host_2 (192.168.128.4:53)",
-      "anomaly_score": 0.1428,
+      "anomaly_score": 0.1171,
       "attack_class": "benign",
       "is_malicious": false
     }
@@ -132,64 +76,8 @@
       "is_attack_path": false
     },
     {
-      "source": "cloud_share_proc_5790_v1",
-      "target": "cloud_share_file_etc_passwd",
-      "type": "read",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "cloud_share_proc_5790_v1",
-      "target": "cloud_share_file_etc_security_limits_conf",
-      "type": "read",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "cloud_share_proc_5790_v3",
-      "target": "cloud_share_file_etc_security_limits_conf",
-      "type": "read",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "cloud_share_proc_5790_v3",
-      "target": "cloud_share_file_var_run_utmp",
-      "type": "write",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "cloud_share_proc_5790_v3",
-      "target": "cloud_share_file_var_run_utmp",
-      "type": "write",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "cloud_share_proc_1_v1",
-      "target": "cloud_share_proc_5790_v2",
-      "type": "fork",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
       "source": "inet-dns_proc_900002_v1",
       "target": "inet-dns_sock_192_168_130_77_53",
-      "type": "connect",
-      "count": 1,
-      "attack_class": "benign",
-      "is_attack_path": false
-    },
-    {
-      "source": "inet-dns_proc_900002_v1",
-      "target": "inet-dns_sock_195_128_194_168_53",
       "type": "connect",
       "count": 1,
       "attack_class": "benign",
@@ -205,6 +93,14 @@
     },
     {
       "source": "inet-dns_proc_900002_v1",
+      "target": "inet-dns_sock_195_128_194_168_53",
+      "type": "connect",
+      "count": 1,
+      "attack_class": "benign",
+      "is_attack_path": false
+    },
+    {
+      "source": "inet-dns_proc_900002_v1",
       "target": "inet-dns_sock_192_168_128_4_53",
       "type": "connect",
       "count": 1,
@@ -213,7 +109,7 @@
     },
     {
       "source": "inet-dns_proc_900002_v1",
-      "target": "inet-dns_sock_195_128_194_168_53",
+      "target": "inet-dns_sock_192_168_130_77_53",
       "type": "connect",
       "count": 1,
       "attack_class": "benign",
