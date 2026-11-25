@@ -6,10 +6,10 @@
 
 | 구분 | 경로 | 역할 및 제약 사항 |
 | :--- | :--- | :--- |
-| **Raw Metadata & Rules** | `data/fox/dataset.yaml`<br>`data/fox/rules/*.yaml` | AIT-LDS v2.0 `fox` 시나리오(`2022-01-15`~`01-20`) 메타데이터 및 Kyoushi 기반 EQL 공격 규칙 정의. |
-| **Host Logs (`gather/`)** | `data/fox/gather/<host>/logs/` | 7개 호스트(`cloud_share`, `inet-firewall`, `internal_share`, `intranet_server`, `mail`, `vpn`, `webserver`) 격리 로그 (`audit/audit.log` 24,082줄 및 `apache2`, `dnsmasq`, `auth`, `openvpn`, `logstash` 데몬 로그). |
-| **Ground Truth (`labels/`)** | `data/fox/labels/<host>/logs/` | `gather/`와 대칭 구조. JSONL의 1-based `line` 필드를 통해 원본 로그 라인과 세부 공격 라벨 1:1 매핑. |
-| **Read-Only Isolation** | `configs/default.yaml`<br>`processed/fox/`, `artifacts/`, `checkpoints/` | 원본 `data/` 디렉터리 내 쓰기 및 캐시 생성 전면 금지. 전처리 텐서(`.pt`), FastText 모델, 가중치, 추론 샘플 JSON은 외부 경로에만 산출. |
+| **Raw Metadata & Rules** | `dataset/fox/dataset.yaml`<br>`dataset/fox/rules/*.yaml` | AIT-LDS v2.0 `fox` 시나리오(`2022-01-15`~`01-20`) 메타데이터 및 Kyoushi 기반 EQL 공격 규칙 정의. |
+| **Host Logs (`gather/`)** | `dataset/fox/gather/<host>/logs/` | 7개 호스트(`cloud_share`, `inet-firewall`, `internal_share`, `intranet_server`, `mail`, `vpn`, `webserver`) 격리 로그 (`audit/audit.log` 24,082줄 및 `apache2`, `dnsmasq`, `auth`, `openvpn`, `logstash` 데몬 로그). |
+| **Ground Truth (`labels/`)** | `dataset/fox/labels/<host>/logs/` | `gather/`와 대칭 구조. JSONL의 1-based `line` 필드를 통해 원본 로그 라인과 세부 공격 라벨 1:1 매핑. |
+| **Read-Only Isolation** | `configs/default.yaml`<br>`processed/fox/`, `artifacts/`, `checkpoints/` | 원본 `dataset/` 디렉터리 내 쓰기 및 캐시 생성 전면 금지. 전처리 텐서(`.pt`), FastText 모델, 가중치, 추론 샘플 JSON은 외부 경로에만 산출. |
 
 ---
 
@@ -29,7 +29,7 @@
   * **Identity Isolation:** 모든 토폴로지 키에 `host_id`를 포함하고, 프로세스를 `(host_id, pid, exec_version)`으로 식별(`execve` 또는 바이너리 변경 시 `exec_version` 증가)하여 Cross-Host PID 충돌 및 PID 재사용 오염 제거.
 
 ### 2.2 라벨링, 정제 및 그래프 압축
-* **2단계 결합 라벨링 (`src/data/phases.py`, `src/data/taxonomy.py`, `configs/taxonomy.yaml`)**
+* **2단계 결합 라벨링 (`src/dataset/phases.py`, `src/dataset/taxonomy.py`, `configs/taxonomy.yaml`)**
   * 1단계(JSONL 1-based 악성 판정)와 2단계(`ScenarioPhaseMatcher` 기반 공격 구간 매칭: 1월 17일 `service_stop`/`dnsteal` 및 1월 18일 본 공격)를 결합해 6-Class(`0~5`) 부여.
   * 라벨 충돌 시 9종 우선순위 리스트를 적용하며, `RAW_PHASES` 외부 악성 이벤트(`dnsmasq.log` 사전 `dnsteal` 등)는 경고 로깅 후 JSONL 세부 라벨 매핑 우선 적용.
 * **경계 기반 Path Sanitizer (`src/graph/sanitizer.py`)**
@@ -113,5 +113,5 @@
 
 | 대상 데이터셋 | 수정 대상 파일 | 확장 및 적용 절차 |
 | --- | --- | --- |
-| **AIT-LDS v2.0 타 시나리오**(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`) | `src/data/phases.py`, `configs/default.yaml` | `wheeler`를 제외한 6개 시나리오의 UTC 공격 단계 구간을 `RAW_PHASES`에 등록하고 `default.yaml`의 대상 시나리오명을 변경하여 코어 코드 수정 없이 파이프라인 실행. |
-| **CAM-LDS (2026)**(순정 커널 `auditd` 환경) | `configs/default.yaml`, `configs/taxonomy.yaml`, `src/data/taxonomy.py` | `default.yaml`에서 `include_supplementary_logs: false`로 설정해 멀티라인 `auditd` 파서 단독 구동. `taxonomy.yaml`의 `cam_lds.mitre_tactics` 및 `techniques` 매핑을 편집하여 `LabelTaxonomy.map_cam_lds_label()`로 통합. |
+| **AIT-LDS v2.0 타 시나리오**(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`) | `src/dataset/phases.py`, `configs/default.yaml` | `wheeler`를 제외한 6개 시나리오의 UTC 공격 단계 구간을 `RAW_PHASES`에 등록하고 `default.yaml`의 대상 시나리오명을 변경하여 코어 코드 수정 없이 파이프라인 실행. |
+| **CAM-LDS (2026)**(순정 커널 `auditd` 환경) | `configs/default.yaml`, `configs/taxonomy.yaml`, `src/dataset/taxonomy.py` | `default.yaml`에서 `include_supplementary_logs: false`로 설정해 멀티라인 `auditd` 파서 단독 구동. `taxonomy.yaml`의 `cam_lds.mitre_tactics` 및 `techniques` 매핑을 편집하여 `LabelTaxonomy.map_cam_lds_label()`로 통합. |

@@ -1,5 +1,5 @@
 .venv/
-/data/
+/dataset/
 __pycache__/
 *.pyc
 *.pt

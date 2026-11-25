@@ -41,7 +41,7 @@ def set_all_seeds(seed: int) -> None:
 
 
 def snapshot_data_directory(data_dir: Path) -> Dict[str, Tuple[int, str]]:
-    """Compute a read-only integrity manifest over scenario metadata, audit logs, labels, and rules in data/."""
+    """Compute a read-only integrity manifest over scenario metadata, audit logs, labels, and rules in dataset/."""
     manifest: Dict[str, Tuple[int, str]] = {}
     top_entries = sorted(p.relative_to(data_dir).as_posix() for p in data_dir.glob("*/*"))
     manifest["__top_entries__"] = (len(top_entries), hashlib.sha256("\n".join(top_entries).encode()).hexdigest())
@@ -202,10 +202,10 @@ def main() -> None:
     )
 
     after_manifest = snapshot_data_directory(data_root)
-    assert before_manifest == after_manifest, "CRITICAL VIOLATION: data/ directory was modified!"
+    assert before_manifest == after_manifest, "CRITICAL VIOLATION: dataset/ directory was modified!"
     for pt_name in ("train.pt", "val.pt", "test.pt", "metadata.json"):
         assert (processed_dir / pt_name).is_file(), f"Missing output file: {processed_dir / pt_name}"
-    logger.info("[Check 1/6 PASSED] data/ read-only integrity preserved; processed/%s/*.pt created.", scenario)
+    logger.info("[Check 1/6 PASSED] dataset/ read-only integrity preserved; processed/%s/*.pt created.", scenario)
 
     all_graphs = splits["train"] + splits["val"] + splits["test"]
     expected_dims = {"process": 68, "file": 36, "socket": 20}

@@ -16,7 +16,7 @@ scenarios:
   default_scenario: "fox"
 
 paths:
-  data_dir: "data"
+  data_dir: "dataset"
   processed_dir: "processed"
   artifacts_dir: "artifacts"
   checkpoints_dir: "checkpoints"
