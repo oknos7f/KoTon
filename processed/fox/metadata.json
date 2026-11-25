@@ -1,0 +1,12 @@
+{
+  "scenario": "fox",
+  "num_cpr_edges": 159124,
+  "cpr_compression_pct": 16.3016,
+  "num_windows_total": 7785,
+  "split_sizes": {
+    "train": 5449,
+    "val": 1168,
+    "test": 1168
+  },
+  "out_of_phase_jsonl_fallbacks": 846
+}

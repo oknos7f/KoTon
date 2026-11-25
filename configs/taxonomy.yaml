@@ -1,0 +1,76 @@
+version: "1.0"
+
+tactic_classes:
+  0: "benign"
+  1: "scans"
+  2: "webshell/reverse_shell"
+  3: "cracking"
+  4: "privilege_escalation"
+  5: "service_stop/dnsteal"
+
+phase_to_tactic_id:
+  benign: 0
+  network_scans: 1
+  service_scans: 1
+  wpscan: 1
+  dirb: 1
+  webshell: 2
+  reverse_shell: 2
+  cracking: 3
+  privilege_escalation: 4
+  service_stop: 5
+  dnsteal: 5
+
+ait_lds:
+  label_priority:
+    - "wpscan"
+    - "dirb"
+    - "dnsteal"
+    - "dns_scan"
+    - "service_scan"
+    - "attacker_change_user"
+    - "escalated_sudo_command"
+    - "webshell_cmd"
+    - "crack_passwords"
+
+  fine_label_to_tactic_id:
+    wpscan: 1
+    dirb: 1
+    dns_scan: 1
+    service_scan: 1
+    network_scan: 1
+    traceroute: 1
+    attacker_vpn: 1
+    attacker_http: 1
+    foothold: 1
+    webshell_cmd: 2
+    webshell_upload: 2
+    reverse_shell: 2
+    crack_passwords: 3
+    attacker_change_user: 4
+    escalated_sudo_command: 4
+    escalated_command: 4
+    escalated_sudo_session: 4
+    escalate: 4
+    dnsteal: 5
+    dnsteal-received: 5
+    exfiltration-service: 5
+    service_stop: 5
+    attacker: 5
+
+cam_lds:
+  mitre_tactics:
+    reconnaissance: 1
+    discovery: 1
+    initial_access: 2
+    execution: 2
+    persistence: 2
+    command_and_control: 2
+    credential_access: 3
+    privilege_escalation: 4
+    defense_evasion: 4
+    lateral_movement: 4
+    impact: 5
+    exfiltration: 5
+    collection: 5
+  techniques: {}
