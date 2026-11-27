@@ -51,36 +51,57 @@ def create_runtime_components() -> Dict[str, object]:
         sensitive_prefixes=cfg["features"]["sensitive_prefixes"],
         seed=int(cfg["project"]["seed"]),
     )
-    ft_path = artifacts_dir / f"{scenario}_cmd_fasttext.model"
+    all7_ckpt = checkpoints_dir / "koton_all7_hetero_gnn.pt"
+    all7_ft = artifacts_dir / "all7_cmd_fasttext.model"
+    use_all7 = all7_ckpt.is_file() and all7_ft.is_file()
+
+    ft_path = all7_ft if use_all7 else (artifacts_dir / f"{scenario}_cmd_fasttext.model")
     if ft_path.is_file():
         encoder.load_cmdline_embedder(ft_path)
     else:
         encoder.fit_cmdline_embedder(["/sbin/init", "/bin/sh", "/usr/bin/sudo"])
 
+    ckpt_path = all7_ckpt if use_all7 else (checkpoints_dir / f"{scenario}_hetero_gnn.pt")
+    ckpt_payload = torch.load(ckpt_path, map_location=device, weights_only=False) if ckpt_path.is_file() else None
+    mcfg = (ckpt_payload or {}).get("model_config", {})
+
     model = EdgeAwareMultiTaskHeteroGNN(
-        hidden_dim=int(cfg["model"]["hidden_dim"]),
-        gat_out_channels=int(cfg["model"]["gat_out_channels"]),
-        gat_heads=int(cfg["model"]["gat_heads"]),
-        num_layers=int(cfg["model"]["num_layers"]),
-        edge_dim=int(cfg["model"]["edge_dim"]),
-        num_classes=int(cfg["model"]["num_classes"]),
-        dropout=float(cfg["model"]["dropout"]),
-        mask_rate=float(cfg["model"]["mask_rate"]),
-        sce_gamma=float(cfg["model"]["sce_gamma"]),
-        focal_gamma=float(cfg["model"]["focal_gamma"]),
-        cls_loss_weight=float(cfg["model"]["cls_loss_weight"]),
+        node_in_dims=mcfg.get("node_in_dims"),
+        hidden_dim=int(mcfg.get("hidden_dim", cfg["model"]["hidden_dim"])),
+        gat_out_channels=int(mcfg.get("gat_out_channels", cfg["model"]["gat_out_channels"])),
+        gat_heads=int(mcfg.get("gat_heads", cfg["model"]["gat_heads"])),
+        num_layers=int(mcfg.get("num_layers", cfg["model"]["num_layers"])),
+        edge_dim=int(mcfg.get("edge_dim", cfg["model"]["edge_dim"])),
+        num_classes=int(mcfg.get("num_classes", cfg["model"]["num_classes"])),
+        dropout=float(mcfg.get("dropout", cfg["model"]["dropout"])),
+        mask_rate=float(mcfg.get("mask_rate", cfg["model"]["mask_rate"])),
+        sce_gamma=float(mcfg.get("sce_gamma", cfg["model"]["sce_gamma"])),
+        focal_gamma=float(mcfg.get("focal_gamma", cfg["model"]["focal_gamma"])),
+        cls_loss_weight=float(mcfg.get("cls_loss_weight", cfg["model"]["cls_loss_weight"])),
+        use_relation_balanced_masking=bool(mcfg.get("use_relation_balanced_masking", True)),
+        high_risk_rel_boost=float(mcfg.get("high_risk_rel_boost", 2.5)),
+        relation_loss_alpha=float(mcfg.get("relation_loss_alpha", 0.5)),
         class_weights=torch.ones(int(cfg["model"]["num_classes"]), dtype=torch.float32),
     )
 
-    ckpt_path = checkpoints_dir / f"{scenario}_hetero_gnn.pt"
     recon_scale = 1.0
-    if ckpt_path.is_file():
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model_state_dict"], strict=False)
-        recon_scale = float(ckpt.get("recon_calibration_scale", 1.0))
+    if ckpt_payload is not None:
+        model.load_state_dict(ckpt_payload["model_state_dict"], strict=False)
+        recon_scale = float(ckpt_payload.get("recon_calibration_scale", 1.0))
+        if ckpt_payload.get("feature_stats"):
+            encoder.load_feature_stats(ckpt_payload["feature_stats"])
         logger.info("Loaded trained checkpoint from %s (device=%s)", ckpt_path, device)
 
-    profile_path = artifacts_dir / "threshold_profile.json"
+    profile_mode = os.environ.get("KOTON_PROFILE_MODE", "ait").lower()
+    vm_profile = PROJECT_ROOT / "configs" / "threshold_profile_vm.json"
+    ait_profile = PROJECT_ROOT / "configs" / "threshold_profile.json"
+    legacy_profile = artifacts_dir / "threshold_profile.json"
+    if profile_mode == "vm" and vm_profile.is_file():
+        profile_path = vm_profile
+    elif ait_profile.is_file():
+        profile_path = ait_profile
+    else:
+        profile_path = legacy_profile
     engine = KoTonInferenceEngine(
         model=model,
         taxonomy=taxonomy,
@@ -256,6 +277,28 @@ def api_update_threshold():
         alpha=float(alpha) if alpha is not None else None,
         direct_threshold=float(threshold) if threshold is not None else None,
     )
+    socketio.emit("threshold_updated", res)
+    return jsonify(res)
+
+
+@app.route("/api/profile", methods=["POST"])
+def api_switch_profile():
+    """Switch live Split Conformal calibration profile between AIT-LDS ('ait') and Ubuntu VM ('vm')."""
+    rt = ensure_runtime_started(start_listeners=True)
+    engine: KoTonInferenceEngine = rt["engine"]
+    body = request.get_json(silent=True) or {}
+    mode = str(body.get("mode", "vm")).lower()
+    target_path = (
+        PROJECT_ROOT / "configs" / "threshold_profile_vm.json"
+        if mode == "vm"
+        else PROJECT_ROOT / "configs" / "threshold_profile.json"
+    )
+    if not target_path.is_file():
+        return jsonify({"ok": False, "error": f"Profile not found: {target_path.name}"}), 404
+    engine.load_threshold_profile(target_path)
+    res = engine.update_threshold_zero_reinference(alpha=engine.current_alpha)
+    res["ok"] = True
+    res["profile_env"] = engine.profile_environment
     socketio.emit("threshold_updated", res)
     return jsonify(res)
 

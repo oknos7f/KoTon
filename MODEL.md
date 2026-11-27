@@ -6,10 +6,10 @@
 
 | 구분 | 경로 | 역할 및 제약 사항 |
 | :--- | :--- | :--- |
-| **Raw Metadata & Rules** | `dataset/fox/dataset.yaml`<br>`dataset/fox/rules/*.yaml` | AIT-LDS v2.0 `fox` 시나리오(`2022-01-15`~`01-20`) 메타데이터 및 Kyoushi 기반 EQL 공격 규칙 정의. |
-| **Host Logs (`gather/`)** | `dataset/fox/gather/<host>/logs/` | 7개 호스트(`cloud_share`, `inet-firewall`, `internal_share`, `intranet_server`, `mail`, `vpn`, `webserver`) 격리 로그 (`audit/audit.log` 24,082줄 및 `apache2`, `dnsmasq`, `auth`, `openvpn`, `logstash` 데몬 로그). |
-| **Ground Truth (`labels/`)** | `dataset/fox/labels/<host>/logs/` | `gather/`와 대칭 구조. JSONL의 1-based `line` 필드를 통해 원본 로그 라인과 세부 공격 라벨 1:1 매핑. |
-| **Read-Only Isolation** | `configs/default.yaml`<br>`processed/fox/`, `artifacts/`, `checkpoints/` | 원본 `dataset/` 디렉터리 내 쓰기 및 캐시 생성 전면 금지. 전처리 텐서(`.pt`), FastText 모델, 가중치, 추론 샘플 JSON은 외부 경로에만 산출. |
+| **Raw Metadata & Rules** | `dataset/<scenario>/dataset.yaml`<br>`dataset/<scenario>/rules/*.yaml`<br>`dataset/<scenario>/processing/config/attacker/*.yaml` | AIT-LDS v2.0 7개 시나리오(`fox`, `russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`, `wheeler` 제외) 메타데이터, 공격 단계 타임스탬프 및 Kyoushi EQL 규칙 정의. |
+| **Host Logs (`gather/`)** | `dataset/<scenario>/gather/<host>/logs/` | 시나리오별 다중 호스트 격리 로그(`audit/audit.log` 및 `apache2`, `dnsmasq`, `auth`, `openvpn`, `logstash` 데몬 로그). |
+| **Ground Truth (`labels/`)** | `dataset/<scenario>/labels/<host>/logs/` | `gather/`와 대칭 구조. JSONL의 1-based `line` 필드를 통해 원본 로그 라인과 세부 공격 라벨 1:1 매핑. |
+| **Read-Only Isolation** | `configs/{default,taxonomy}.yaml`<br>`configs/threshold_profile{,_vm}.json`<br>`processed/<scenario>/`, `artifacts/`, `checkpoints/` | 원본 `dataset/` 디렉터리 내 쓰기 및 캐시 생성 전면 금지(전처리 전후 해시 무결성 검증). 전처리 텐서(`{train,val,test,windows_raw}.pt`), FastText 모델, 가중치(`koton_all7_hetero_gnn.pt`), ONNX(`koton_edge_classifier.onnx`), LOOCV 리포트(`loocv_report.json`), 보정 프로파일은 외부 경로에만 산출. |
 
 ---
 
@@ -29,21 +29,23 @@
   * **Identity Isolation:** 모든 토폴로지 키에 `host_id`를 포함하고, 프로세스를 `(host_id, pid, exec_version)`으로 식별(`execve` 또는 바이너리 변경 시 `exec_version` 증가)하여 Cross-Host PID 충돌 및 PID 재사용 오염 제거.
 
 ### 2.2 라벨링, 정제 및 그래프 압축
-* **2단계 결합 라벨링 (`src/dataset/phases.py`, `src/dataset/taxonomy.py`, `configs/taxonomy.yaml`)**
-  * 1단계(JSONL 1-based 악성 판정)와 2단계(`ScenarioPhaseMatcher` 기반 공격 구간 매칭: 1월 17일 `service_stop`/`dnsteal` 및 1월 18일 본 공격)를 결합해 6-Class(`0~5`) 부여.
+* **2단계 결합 라벨링 (`src/data/phases.py`, `src/data/taxonomy.py`, `configs/taxonomy.yaml`)**
+  * 1단계(JSONL 1-based 악성 판정)와 2단계(`ScenarioPhaseMatcher` 기반 공격 구간 매칭: 7개 시나리오별 `foothold`/`escalate`/`exfiltration_service` UTC 구간)를 결합해 6-Class(`0~5`) 부여.
   * 라벨 충돌 시 9종 우선순위 리스트를 적용하며, `RAW_PHASES` 외부 악성 이벤트(`dnsmasq.log` 사전 `dnsteal` 등)는 경고 로깅 후 JSONL 세부 라벨 매핑 우선 적용.
+  * `is_in_eval_phase(..., "false_positive_test")`로 각 시나리오의 순수 정상 평가 구간을 별도 식별.
 * **경계 기반 Path Sanitizer (`src/graph/sanitizer.py`)**
   * 정규식 `(?<![a-zA-Z])<token>(?![a-zA-Z])`을 적용해 시나리오·호스트명(`fox-access.log` $\rightarrow$ `-access.log`)만 마스킹하고, 정상 바이너리 경로(`/usr/bin/firefox`)의 부분 문자열 훼손 방지.
 * **Causality-Preserving Reduction (CPR) (`src/graph/cpr.py`)**
-  * 동일 `(src_process, read|write, dst_file)` 쌍에서 $0 \le \Delta t < 1.0\text{s}$ 내 연속 발생, 중간 타 프로세스의 동일 파일 개입 부재, 동일 라벨 조건을 모두 충족하는 버스트 엣지를 병합하고 `cpr_count` 누적(`fox` 기준 16.30%~22.87% 압축률 달성).
-* **슬라이딩 윈도우 및 순수 정상 마스크 (`src/graph/builder.py`)**
+  * 동일 `(src_process, read|write, dst_file)` 쌍에서 $0 \le \Delta t < 1.0\text{s}$ 내 연속 발생, 중간 타 프로세스의 동일 파일 개입 부재, 동일 라벨 조건을 모두 충족하는 버스트 엣지를 병합하고 `cpr_count` 누적(7개 시나리오 기준 **6.35%~16.30%** 압축률 달성, 라이브 Ubuntu VM 유휴 트래픽 **19.80%** 압축).
+* **슬라이딩 윈도우, 순수 정상 마스크 및 전체 시나리오 직렬화 (`src/graph/builder.py`, `scripts/preprocess_all_scenarios.py`)**
   * 180초 윈도우·60초 스트라이드로 서브그래프 생성. `ScenarioPhaseMatcher.is_clean_benign_window()` 통과와 윈도우 내 악성 엣지 0건(`edge_y == 0`)을 동시 충족할 때만 `is_clean_benign_window = True`를 부여해 정상 학습 구간의 오염 원천 차단.
+  * 7개 시나리오 전체에서 총 **53,974개 윈도우**(순수 정상 `false_positive_test` **1,576개** 포함)를 `processed/<scenario>/{train,val,test,windows_raw}.pt`로 직렬화하고, `windows_raw.pt`를 통해 7-Fold LOOCV 시 Fold별 독립 인코딩을 보장.
 
 ---
 
 ## 3. 이종 그래프(HeteroGraph) 피처 엔지니어링 스펙
 
-> **Zero-Leakage 원칙:** `host_id`, `pid`, 절대 시각은 모든 입력 텐서에서 배제되며, 노드 차수(`in_deg`, `out_deg`)와 연결 빈도는 현재 윈도우 스냅샷 내부에서만 산출하여 Future Leakage를 차단한다.
+> **Zero-Leakage 원칙:** `host_id`, `pid`, 절대 시각은 모든 입력 텐서에서 배제되며, 노드 차수(`in_deg`, `out_deg`)와 연결 빈도는 현재 윈도우 스냅샷 내부에서만 산출하여 Future Leakage를 차단한다. 또한 연속 구조 피처의 z-score 정규화 통계량(`fit_feature_stats` / `apply_feature_stats_to_graph`) 및 FastText 어휘는 각 Fold의 Train Split 내부에서만 독립 적합하여 Transductive Leakage를 원천 차단한다.
 
 | 엔티티 타입 | 차원 | 세부 피처 구성 명세 (`src/graph/encoder.py`, `src/graph/builder.py`) |
 | :--- | :---: | :--- |
@@ -65,15 +67,31 @@
    * **Task 1 (Anomaly Reconstruction):** 타입별 경량 복원 디코더(`128 -> 68/36/20`).
    * **Task 2 (Attack Stage Classification):** 양 끝단 노드 임베딩 및 `edge_attr` 결합(`128 + 128 + 2 = 258-dim`) 기반 6-Class 엣지 분류 MLP.
 
-### 4.2 손실 함수 및 학습·추론 스케일링 (`src/models/losses.py`, `src/models/trainer.py`)
+### 4.2 손실 함수, 관계 균형 마스킹 및 7-Fold LOOCV·보정 프로토콜 (`src/models/losses.py`, `src/models/trainer.py`, `scripts/train_loocv.py`, `scripts/calibrate_thresholds.py`)
 * **Multi-Task Objective:**
   $$\mathcal{L}_{\text{total}} = \mathbb{I}(\text{clean\_benign}) \cdot \mathcal{L}_{\text{recon}} + \lambda \cdot \mathcal{L}_{\text{cls}}$$
-  * **$\mathcal{L}_{\text{recon}}$ (Task 1):** Scaled Cosine Error($\gamma=3.0$) + MSE. `is_clean_benign_window == True` 구간에서만 타입별 노드 50%를 학습 가능 마스크 토큰으로 치환하여 역전파(악성 구간 복원 손실 `0.0` 강제).
-  * **$\mathcal{L}_{\text{cls}}$ (Task 2):** 로그 역빈도 클래스 가중치를 적용한 Multi-Class Focal Loss($\gamma=2.0$). 비마스킹(Unmasked) 원본 임베딩을 사용하여 분류 정확도 보존.
-* **데이터 분할 및 추론 캘리브레이션 (`scripts/verify_pipeline.py`):**
-  * 윈도우 대표 Tactic 기준 Stratified Split(`70:15:15`) 수행 후 Train Split으로만 FastText 적합.
-  * Optimizer: `AdamW` + Gradient Clipping(`max_norm=2.0`).
-  * **Anomaly Score Calibration:** 학습 완료 후 순수 정상 윈도우에 대해 결정론적 2-Fold 50% 마스킹 복원 오차의 95분위수(95th Percentile)를 산출하여 `recon_scale` 보정 상수로 확정.
+  * **$\mathcal{L}_{\text{recon}}$ (Task 1 — Relation-Balanced Masking):** Scaled Cosine Error($\gamma$) + MSE. `is_clean_benign_window == True` 구간에서만 `RelationBalancedMaskSampler`로 저빈도·고위험 관계(`execute`, `connect`, `fork`) 인접 노드에 역빈도 + 부스트 가중치(`high_risk_rel_boost`)를 부여해 가중 비복원 마스킹 및 가중 복원 손실을 역전파(악성 구간 복원 손실 `0.0` 강제, 정상/악성 미니배치 엄격 분리).
+  * **$\mathcal{L}_{\text{cls}}$ (Task 2 — Relation-Balanced Focal Loss):** 클래스 역빈도 가중치와 관계별 역빈도·고위험 가중치(`relation_loss_alpha`, `RelationBalancedFocalLoss`)를 결합한 Multi-Class Focal Loss. 비마스킹(Unmasked) 원본 임베딩을 사용하여 분류 정확도 보존.
+* **Leakage-Free 7-Fold LOOCV 및 Optuna TPE 탐색 (`scripts/train_loocv.py`, `artifacts/loocv_report.json`):**
+  * 각 Fold에서 Held-out 1개 시나리오를 완전 격리하고, 나머지 6개 Train 시나리오 내부에서만 FastText, 구조 피처 z-score 통계량, 클래스/관계 가중치를 독립 적합(`AdamW` + CosineAnnealingLR + Gradient Clipping `max_norm=2.0`).
+  * Optuna TPE 10-trial 탐색(`0.7 * Macro-F1 + 0.3 * HighRiskRelRecall` 목적함수) 결과: Uniform Masking Baseline(Unseen 3-Fold `Macro-F1 0.7308`) 대비 Relation-Balanced Masking 적용 시 **`0.7653` (+3.45%p)** 달성(최적 파라미터: `lr=0.00191`, `dropout=0.063`, `mask_rate=0.428`, `cls_loss_weight=1.353`, `focal_gamma=2.594`, `sce_gamma=3.275`, `high_risk_rel_boost=3.718`, `relation_loss_alpha=0.486`).
+
+| 평가 구분 | Macro-F1 | Weighted-F1 | High-Risk Rel Recall (`execute`/`connect`/`fork`) | 비고 |
+| :--- | :---: | :---: | :---: | :--- |
+| **단일 시나리오 검증 (`fox`, Step 4)** | `0.8721` | `0.9841` | — | `scripts/verify_pipeline.py` |
+| **7-Fold LOOCV (Unseen 평균 ± 표준편차)** | **`0.7491 ± 0.0336`** | **`0.9838 ± 0.0086`** | **`0.9173 ± 0.0648`** | Zero Transductive Leakage |
+| **최종 7-시나리오 통합 모델 (Val)** | **`0.8268`** | **`0.9940`** | **`0.9881`** | `checkpoints/koton_all7_hetero_gnn.pt` (`false_positive_test` 전량 제외) |
+
+* **추론 가속 검증 (`torch.compile` / ONNX):**
+  * CUDA Eager 윈도우 추론 평균 **`20.44 ms/window`** (`torch.compile` `reduce-overhead` 호환성 검증 완료; 동적 소형 그래프에서는 CUDA Graph 오버헤드로 Eager 모드가 더 저지연).
+  * Edge Classifier MLP ONNX Export(`artifacts/koton_edge_classifier.onnx`) 수치 정합성 `max_abs_diff = 1.4e-6`, CPU ONNXRuntime **1.96x 가속**(`1.366 ms → 0.696 ms` / 512 edges).
+* **이중 환경 Split Conformal Calibration (`scripts/calibrate_thresholds.py`):**
+  * 엔티티 타입별(`process`, `file`, `socket`) 독립 정규화 스케일 및 경험적 $p$-value($p_t(v) = \frac{1 + |\{s \in S_{\text{cal}, t}: s \ge s_t(v)\}|}{1 + |S_{\text{cal}, t}|}$)를 산출하고, 윈도우 수준 **Fisher's Method** 통합 통계량($T_{\text{Fisher}} = -2 \sum_{t} \ln p_{W, t}$)에 Split Conformal 분위수를 적용.
+
+| 보정 환경 | 출력 프로파일 | 보정 데이터 | `recon_scale` | Cutoff ($\alpha=0.01$) | Fisher Thr ($\alpha=0.01$) | Held-out Node FPR |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| **AIT-LDS `false_positive_test`** | `configs/threshold_profile.json` | 7개 시나리오 미학습 순수 정상 1,576개 윈도우(50/50 분할) | `1.1462` | `0.8493` | `30.6756` | **`0.8920%`** (< 1%) |
+| **Ubuntu VM 유휴 데몬** | `configs/threshold_profile_vm.json` | 실제 VM 유휴 5분(18,609줄 `auditd` / 4,803 CPR 엣지, 96 윈도우) | `2.4128` | `0.6977` | `40.1870` | **`1.0140%`** (`socket 0.446%`) |
 
 ---
 
@@ -113,5 +131,5 @@
 
 | 대상 데이터셋 | 수정 대상 파일 | 확장 및 적용 절차 |
 | --- | --- | --- |
-| **AIT-LDS v2.0 타 시나리오**(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`) | `src/dataset/phases.py`, `configs/default.yaml` | `wheeler`를 제외한 6개 시나리오의 UTC 공격 단계 구간을 `RAW_PHASES`에 등록하고 `default.yaml`의 대상 시나리오명을 변경하여 코어 코드 수정 없이 파이프라인 실행. |
-| **CAM-LDS (2026)**(순정 커널 `auditd` 환경) | `configs/default.yaml`, `configs/taxonomy.yaml`, `src/dataset/taxonomy.py` | `default.yaml`에서 `include_supplementary_logs: false`로 설정해 멀티라인 `auditd` 파서 단독 구동. `taxonomy.yaml`의 `cam_lds.mitre_tactics` 및 `techniques` 매핑을 편집하여 `LabelTaxonomy.map_cam_lds_label()`로 통합. |
+| **AIT-LDS v2.0 전체 7개 시나리오** (`fox`, `russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`) — **적용 완료** | `src/data/phases.py`, `scripts/preprocess_all_scenarios.py`, `scripts/train_loocv.py` | `wheeler`를 제외한 7개 시나리오의 UTC 공격 단계 및 `false_positive_test` 구간을 `RAW_PHASES`에 등록 완료. `preprocess_all_scenarios.py` 및 `train_loocv.py`로 통합 전처리·7-Fold LOOCV·통합 모델 학습 완료. |
+| **CAM-LDS (2026)**(순정 커널 `auditd` 환경) | `configs/default.yaml`, `configs/taxonomy.yaml`, `src/data/taxonomy.py` | `default.yaml`에서 `include_supplementary_logs: false`로 설정해 멀티라인 `auditd` 파서 단독 구동. `taxonomy.yaml`의 `cam_lds.mitre_tactics` 및 `techniques` 매핑을 편집하여 `LabelTaxonomy.map_cam_lds_label()`로 통합. |

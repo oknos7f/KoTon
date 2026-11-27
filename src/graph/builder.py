@@ -44,6 +44,7 @@ class WindowSpec:
     edges: List[ProvenanceEdgeEvent]
     is_clean_benign_window: bool
     stratify_label: int
+    is_false_positive_test: bool = False
 
 
 def format_node_uid(node_type: str, key: Tuple) -> str:
@@ -127,6 +128,10 @@ class SlidingWindowGraphBuilder:
                     and all(self.taxonomy.is_clean_benign_timestamp(e.timestamp) for e in slice_edges)
                 )
                 is_clean_benign = bool(phase_clean and not has_malicious)
+                is_fp_test = bool(
+                    is_clean_benign
+                    and self.taxonomy.phase_matcher.is_in_eval_phase(win_start, win_end, "false_positive_test")
+                )
                 if mal_tactics:
                     tactic_freq = Counter(mal_tactics)
                     rare_priority = (2, 4, 3, 1, 5)
@@ -142,6 +147,7 @@ class SlidingWindowGraphBuilder:
                         edges=slice_edges,
                         is_clean_benign_window=is_clean_benign,
                         stratify_label=strat_lbl,
+                        is_false_positive_test=is_fp_test,
                     )
                 )
                 win_id += 1
@@ -342,7 +348,9 @@ class SlidingWindowGraphBuilder:
         data.window_start = float(window.start_ts)
         data.window_end = float(window.end_ts)
         data.is_clean_benign_window = torch.tensor([window.is_clean_benign_window], dtype=torch.bool)
+        data.is_false_positive_test = torch.tensor([window.is_false_positive_test], dtype=torch.bool)
         data.window_tactic = torch.tensor([window.stratify_label], dtype=torch.long)
+        data.scenario_name = str(self.taxonomy.scenario)
         return data
 
     def build_and_save_dataset(

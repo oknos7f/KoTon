@@ -100,6 +100,84 @@ class HeterogeneousFeatureEncoder:
         self._exe_cache: Dict[str, np.ndarray] = {}
         self._file_cache: Dict[str, tuple[np.ndarray, float, float]] = {}
         self._ip_cache: Dict[str, tuple[np.ndarray, float]] = {}
+        self.feature_stats: Optional[Dict[str, Dict[str, np.ndarray]]] = None
+
+    def fit_feature_stats(self, train_graphs: Sequence) -> Dict[str, Dict[str, List[float]]]:
+        """Fit per-node-type structural and edge normalization statistics strictly on training graphs."""
+        import torch
+
+        # Continuous structural column indices per node type (excluding binary flags & HFH/FastText)
+        cont_cols: Dict[str, List[int]] = {
+            "process": [self.proc_exe_dim + self.proc_cmd_dim, self.proc_exe_dim + self.proc_cmd_dim + 1, self.proc_exe_dim + self.proc_cmd_dim + 2],
+            "file": [self.file_path_dim, self.file_path_dim + 1, self.file_path_dim + 2],
+            "socket": [self.sock_ip_dim + 4, self.sock_ip_dim + 5, self.sock_ip_dim + 7],
+        }
+        stats_np: Dict[str, Dict[str, np.ndarray]] = {}
+        stats_serializable: Dict[str, Dict[str, List[float]]] = {}
+
+        for ntype, cols in cont_cols.items():
+            chunks = []
+            for g in train_graphs:
+                x = g[ntype].x
+                if x.size(0) > 0:
+                    chunks.append(x[:, cols].detach().cpu().numpy())
+            if chunks:
+                cat = np.concatenate(chunks, axis=0).astype(np.float64)
+                mean = np.mean(cat, axis=0).astype(np.float32)
+                std = np.maximum(np.std(cat, axis=0), 1e-3).astype(np.float32)
+            else:
+                mean = np.zeros(len(cols), dtype=np.float32)
+                std = np.ones(len(cols), dtype=np.float32)
+            stats_np[ntype] = {"cols": np.array(cols, dtype=np.int64), "mean": mean, "std": std}
+            stats_serializable[ntype] = {"cols": cols, "mean": mean.tolist(), "std": std.tolist()}
+
+        self.feature_stats = stats_np
+        return stats_serializable
+
+    def load_feature_stats(self, stats_dict: Optional[Dict[str, Dict[str, List[float]]]]) -> None:
+        """Load pre-fitted train-only normalization statistics."""
+        if not stats_dict:
+            self.feature_stats = None
+            return
+        self.feature_stats = {
+            ntype: {
+                "cols": np.array(entry["cols"], dtype=np.int64),
+                "mean": np.array(entry["mean"], dtype=np.float32),
+                "std": np.maximum(np.array(entry["std"], dtype=np.float32), 1e-3),
+            }
+            for ntype, entry in stats_dict.items()
+        }
+
+    def export_feature_stats(self) -> Optional[Dict[str, Dict[str, List[float]]]]:
+        """Export current normalization statistics as JSON/checkpoint-friendly lists."""
+        if not self.feature_stats:
+            return None
+        return {
+            ntype: {
+                "cols": entry["cols"].tolist(),
+                "mean": entry["mean"].tolist(),
+                "std": entry["std"].tolist(),
+            }
+            for ntype, entry in self.feature_stats.items()
+        }
+
+    def apply_feature_stats_to_graph(self, data) -> object:
+        """Apply train-only z-score standardization in-place to continuous structural node columns."""
+        if not self.feature_stats:
+            return data
+        import torch
+
+        for ntype, entry in self.feature_stats.items():
+            x = data[ntype].x
+            if x.size(0) == 0:
+                continue
+            cols = entry["cols"].tolist()
+            mean_t = torch.tensor(entry["mean"], dtype=x.dtype, device=x.device)
+            std_t = torch.tensor(entry["std"], dtype=x.dtype, device=x.device)
+            x = x.clone()
+            x[:, cols] = ((x[:, cols] - mean_t) / std_t).clamp(-10.0, 10.0)
+            data[ntype].x = x
+        return data
 
     def _clear_feature_caches(self) -> None:
         """Reset memoized token and path feature caches when FastText weights change."""
@@ -131,6 +209,7 @@ class HeterogeneousFeatureEncoder:
         min_count: int = 1,
         window: int = 5,
         epochs: int = 10,
+        workers: int = 4,
     ) -> None:
         """Train field-specific FastText embedding model strictly on training-split process cmdlines."""
         sentences: List[List[str]] = []
@@ -147,7 +226,7 @@ class HeterogeneousFeatureEncoder:
             vector_size=self.proc_cmd_dim,
             window=window,
             min_count=min_count,
-            workers=1,
+            workers=max(1, int(workers)),
             seed=self.seed,
             epochs=epochs,
         )

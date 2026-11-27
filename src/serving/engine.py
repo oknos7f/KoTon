@@ -9,6 +9,7 @@ import time
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
+from scipy.stats import chi2
 import torch
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData
@@ -50,6 +51,13 @@ class KoTonInferenceEngine:
 
         self._sorted_cal_scores: List[float] = []
         self._alpha_thresholds: Dict[str, float] = {}
+        self._per_type_scales: Dict[str, float] = {}
+        self._per_type_sorted_scores: Dict[str, List[float]] = {}
+        self._per_type_alpha_thresholds: Dict[str, Dict[str, float]] = {}
+        self._fisher_sorted_scores: List[float] = []
+        self._fisher_alpha_thresholds: Dict[str, float] = {}
+        self.fisher_threshold: float = 13.8155  # chi2(df=6) 0.99 default fallback
+        self.profile_environment: str = "default"
         if threshold_profile_path is not None and Path(threshold_profile_path).is_file():
             self.load_threshold_profile(threshold_profile_path)
 
@@ -104,14 +112,43 @@ class KoTonInferenceEngine:
                 torch.cuda.synchronize()
 
     def load_threshold_profile(self, profile_path: str | Path) -> None:
-        """Load empirical Conformal calibration scores and alpha lookup table from threshold_profile.json."""
+        """Load empirical Conformal calibration scores, per-entity-type scales, and Fisher thresholds."""
         payload = json.loads(Path(profile_path).read_text(encoding="utf-8"))
+        self.profile_environment = str(payload.get("environment", "default"))
         self.recon_scale = max(1e-4, float(payload.get("recon_calibration_scale", self.recon_scale)))
         self.current_alpha = float(payload.get("default_alpha", self.current_alpha))
         self.anomaly_threshold = float(payload.get("default_threshold", self.anomaly_threshold))
         self._alpha_thresholds = {str(k): float(v) for k, v in payload.get("alpha_thresholds", {}).items()}
         scores = payload.get("sorted_nonconformity_scores", [])
         self._sorted_cal_scores = sorted(float(x) for x in scores)
+
+        self._per_type_scales.clear()
+        self._per_type_sorted_scores.clear()
+        self._per_type_alpha_thresholds.clear()
+        per_type = payload.get("per_type_calibration", {})
+        if isinstance(per_type, dict):
+            for ntype, tinfo in per_type.items():
+                if not isinstance(tinfo, dict):
+                    continue
+                self._per_type_scales[str(ntype)] = max(
+                    1e-4, float(tinfo.get("recon_calibration_scale", self.recon_scale))
+                )
+                self._per_type_sorted_scores[str(ntype)] = sorted(
+                    float(x) for x in tinfo.get("sorted_nonconformity_scores", [])
+                )
+                self._per_type_alpha_thresholds[str(ntype)] = {
+                    str(k): float(v) for k, v in tinfo.get("alpha_thresholds", {}).items()
+                }
+
+        fisher_cfg = payload.get("fisher_calibration", {})
+        if isinstance(fisher_cfg, dict) and fisher_cfg:
+            self._fisher_sorted_scores = sorted(float(x) for x in fisher_cfg.get("sorted_fisher_scores", []))
+            self._fisher_alpha_thresholds = {
+                str(k): float(v) for k, v in fisher_cfg.get("alpha_thresholds", {}).items()
+            }
+            self.fisher_threshold = float(
+                fisher_cfg.get("default_fisher_threshold", self.fisher_threshold)
+            )
 
     def reset_session_aliases(self) -> None:
         """Clear session-scoped IP role aliases and streaming sliding-window state."""
@@ -139,19 +176,71 @@ class KoTonInferenceEngine:
             self._ext_ip_aliases[ip_str] = f"ext_host_{len(self._ext_ip_aliases)}"
         return self._ext_ip_aliases[ip_str]
 
-    def _normalize_recon_error(self, raw_error: float) -> float:
-        """Map raw reconstruction error into [0.0, 1.0] via calibrated exponential scaling."""
-        scaled = 1.0 - math.exp(-max(0.0, raw_error) / self.recon_scale)
+    def _normalize_recon_error(self, raw_error: float, node_type: Optional[str] = None) -> float:
+        """Map raw reconstruction error into [0.0, 1.0] via type-specific or global exponential scaling."""
+        scale = self._per_type_scales.get(node_type, self.recon_scale) if node_type else self.recon_scale
+        scaled = 1.0 - math.exp(-max(0.0, raw_error) / max(1e-4, scale))
         return float(min(1.0, max(0.0, scaled)))
 
-    def compute_conformal_pvalue(self, recon_score: float) -> float:
-        """Compute empirical Conformal p-value in O(log M) against calibrated benign nonconformity scores."""
-        if not self._sorted_cal_scores:
+    def compute_conformal_pvalue(self, recon_score: float, node_type: Optional[str] = None) -> float:
+        """Compute empirical Conformal p-value in O(log M) against per-type or global benign calibration scores."""
+        ref_scores = (
+            self._per_type_sorted_scores.get(node_type)
+            if node_type and self._per_type_sorted_scores.get(node_type)
+            else self._sorted_cal_scores
+        )
+        if not ref_scores:
             return round(max(0.0001, 1.0 - recon_score), 4)
-        m = len(self._sorted_cal_scores)
-        idx = bisect.bisect_left(self._sorted_cal_scores, recon_score)
+        m = len(ref_scores)
+        idx = bisect.bisect_left(ref_scores, recon_score)
         count_ge = m - idx
         return round(float((1.0 + count_ge) / (1.0 + m)), 4)
+
+    def compute_window_fisher_summary(
+        self,
+        node_pval_by_key: Dict[Tuple[str, int], float],
+    ) -> Dict[str, object]:
+        """Combine per-entity-type worst empirical p-values via Fisher's Method T = -2 * sum(ln(p_t))."""
+        per_type_min_p: Dict[str, float] = {}
+        for (ntype, _), pval in node_pval_by_key.items():
+            prev = per_type_min_p.get(ntype)
+            if prev is None or pval < prev:
+                per_type_min_p[ntype] = float(pval)
+
+        k = len(per_type_min_p)
+        if k == 0:
+            return {"fisher_stat": 0.0, "fisher_chi2_pvalue": 1.0, "fisher_conformal_pvalue": 1.0, "is_fisher_anomalous": False}
+
+        t_stat = float(-2.0 * sum(math.log(max(1e-12, p)) for p in per_type_min_p.values()))
+        chi2_p = float(chi2.sf(t_stat, df=2 * k))
+        if self._fisher_sorted_scores:
+            m = len(self._fisher_sorted_scores)
+            idx = bisect.bisect_left(self._fisher_sorted_scores, t_stat)
+            conf_p = float((1.0 + (m - idx)) / (1.0 + m))
+        else:
+            conf_p = chi2_p
+
+        thr = self.resolve_fisher_threshold_for_alpha(self.current_alpha)
+        return {
+            "fisher_stat": round(t_stat, 4),
+            "fisher_threshold": round(thr, 4),
+            "fisher_chi2_pvalue": round(chi2_p, 6),
+            "fisher_conformal_pvalue": round(conf_p, 4),
+            "per_type_min_pvalue": {nt: round(p, 4) for nt, p in sorted(per_type_min_p.items())},
+            "is_fisher_anomalous": bool(t_stat > thr),
+        }
+
+    def resolve_fisher_threshold_for_alpha(self, alpha: float) -> float:
+        """Resolve Split Conformal Fisher's Method threshold for significance level alpha."""
+        clamped_alpha = min(0.5, max(0.001, float(alpha)))
+        exact_key = f"{clamped_alpha:.3f}"
+        if exact_key in self._fisher_alpha_thresholds:
+            return float(self._fisher_alpha_thresholds[exact_key])
+        if self._fisher_sorted_scores:
+            m = len(self._fisher_sorted_scores)
+            q_idx = min(m - 1, max(0, int(math.ceil((m + 1) * (1.0 - clamped_alpha))) - 1))
+            return float(self._fisher_sorted_scores[q_idx])
+        return float(self.fisher_threshold)
 
     def resolve_threshold_for_alpha(self, alpha: float) -> float:
         """Resolve exact anomaly_score threshold corresponding to target Conformal significance alpha."""
@@ -329,9 +418,9 @@ class KoTonInferenceEngine:
         for ntype in NODE_TYPES:
             raw_errs = node_raw_errors[ntype].detach().cpu().tolist()
             for idx_n, err_val in enumerate(raw_errs):
-                rs = self._normalize_recon_error(err_val)
+                rs = self._normalize_recon_error(err_val, node_type=ntype)
                 node_recon_by_key[(ntype, idx_n)] = rs
-                node_pval_by_key[(ntype, idx_n)] = self.compute_conformal_pvalue(rs)
+                node_pval_by_key[(ntype, idx_n)] = self.compute_conformal_pvalue(rs, node_type=ntype)
 
             if include_extended_meta:
                 if ntype == "socket":
@@ -466,18 +555,23 @@ class KoTonInferenceEngine:
         )
 
         ts_val = float(getattr(data, "window_end", getattr(data, "window_start", time.time())))
+        fisher_summary = self.compute_window_fisher_summary(node_pval_by_key)
         if include_extended_meta:
             self._cached_state = {
                 "timestamp": ts_val,
                 "nodes": raw_node_records,
                 "edges": raw_edge_records,
+                "fisher": fisher_summary,
             }
 
-        return {
+        out_payload: Dict[str, object] = {
             "timestamp": ts_val,
             "nodes": serialized_nodes,
             "edges": serialized_edges,
         }
+        if include_extended_meta:
+            out_payload["fisher"] = fisher_summary
+        return out_payload
 
     def extract_attack_subgraph(
         self,
@@ -631,6 +725,8 @@ class KoTonInferenceEngine:
             stratify_label=0,
         )
         hetero_data = self._window_builder.build_window_heterodata(win_spec)
+        if self.encoder is not None and self.encoder.feature_stats is not None:
+            self.encoder.apply_feature_stats_to_graph(hetero_data)
         snapshot = self.predict_window(hetero_data, include_extended_meta=True)
         nodes: List[Dict[str, object]] = snapshot["nodes"]
         edges: List[Dict[str, object]] = snapshot["edges"]
@@ -660,6 +756,8 @@ class KoTonInferenceEngine:
                 "threshold": round(self.anomaly_threshold, 4),
                 "estimated_fpr": round(est_fpr, 4),
                 "online_cpr_pct": round(cpr_ratio, 2),
+                "profile_env": self.profile_environment,
+                "fisher": snapshot.get("fisher", {}),
             },
         }
 

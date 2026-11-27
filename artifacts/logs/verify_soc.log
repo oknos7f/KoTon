@@ -1,6 +1,0 @@
-2026-11-26 01:56:51,118 [INFO] verify_realtime_soc: [SOC Check 1/5 PASSED] User HUD icons preserved and verified: {'process.png': (512, 512), 'file.png': (512, 512), 'socket.png': (512, 512)}
-2026-11-26 01:56:58,649 [INFO] verify_realtime_soc: [SOC Check 2/5 PASSED] Initial empty cloud (0/0), HUD icon serving, and REST API verified.
-2026-11-26 01:56:59,152 [INFO] verify_realtime_soc: [SOC Check 3/5 PASSED] AuditStreamCollector streamed 24 raw logs and 18 provenance edges.
-2026-11-26 01:56:59,336 [INFO] verify_realtime_soc: [SOC Check 4/5 PASSED] Streaming tick latency=25.13 ms | Online CPR merged=1.
-2026-11-26 01:56:59,336 [INFO] verify_realtime_soc: [SOC Check 5/5 PASSED] Zero-Reinference (0.070 ms) monotonic transitions verified: alpha=0.002 -> 3 active | alpha=0.050 -> 12 active | alpha=0.240 -> 16 active.
-2026-11-26 01:56:59,336 [INFO] verify_realtime_soc: ALL REAL-TIME SOC VERIFICATION CHECKS PASSED!

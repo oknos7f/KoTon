@@ -7,11 +7,11 @@
 | 구분 | 경로 | 역할 및 제약 사항 |
 | :--- | :--- | :--- |
 | **Stream Collector** | `src/collector/audit_stream.py` | TCP(`:9999`), Unix Domain Socket(`/tmp/koton_audit.sock`), 파일 리플레이를 통합 수신하고 `StatefulAuditParser`로 실시간 멀티라인 병합 수행. 원문 로그 라인은 별도 링 버퍼(`maxsize=2,000`)에 적재하여 대시보드 로그 피드로 전달. |
-| **Streaming Engine** | `src/serving/engine.py`<br>`artifacts/threshold_profile.json` | 180초 증분 슬라이딩 윈도우, $O(1)$ Online CPR, 2-Hop 인과 서브그래프 추출, Delta-Patch 산출 및 무재추론($<1\text{ms}$) 단일 Conformal Cutoff 기반 활성 상태 판정 담당. |
-| **Web Backend & UI** | `web/app.py`<br>`web/templates/index.html`<br>`web/static/{js,css}/` | `Flask` + `Flask-SocketIO`(`threading` 모드) 기반 실시간 증분 푸시 서버 및 Custom GLSL `THREE.Points` 3D 보안 관제 대시보드(Window A). 최초 기동 시 빈 클라우드(`0 / 0`)로 시작. |
+| **Streaming Engine** | `src/serving/engine.py`<br>`checkpoints/koton_all7_hetero_gnn.pt`<br>`configs/threshold_profile{,_vm}.json` | 7-시나리오 통합 GNN 및 Train 전용 정규화 통계량 기반 180초 증분 슬라이딩 윈도우, $O(1)$ Online CPR, 엔티티 타입별 $p$-value + Fisher's Method 통합 점수, 2-Hop 인과 서브그래프 추출, Delta-Patch 산출 및 무재추론($<1\text{ms}$) Conformal Cutoff 판정 담당. |
+| **Web Backend & UI** | `web/app.py`<br>`web/templates/index.html`<br>`web/static/{js,css}/` | `Flask` + `Flask-SocketIO`(`threading` 모드) 기반 실시간 증분 푸시 서버, 이중 환경 프로파일 전환(`KOTON_PROFILE_MODE=ait\|vm`, `POST /api/profile`) 및 Custom GLSL `THREE.Points` 3D 보안 관제 대시보드(Window A). 최초 기동 시 빈 클라우드(`0 / 0`)로 시작. |
 | **HUD Entity Icons** | `web/images/{process,file,socket}.png` | 사용자 제작 `512×512` RGBA 아이콘(흑색 실루엣). 호버 시 Inspector HUD에 단일 노출되며, 코드에서 재생성·덮어쓰기하지 않음(`scripts/generate_hud_icons.py`는 파일 부재 시에만 대체 아이콘 생성). |
 | **Isolated Ubuntu VM** | `scripts/setup_ubuntu_vm.sh`<br>`scripts/start_ubuntu_vm.sh`<br>`scripts/demo_attack.sh` | WSL2 `/dev/kvm` 가속 Ubuntu 24.04 게스트(`~/.koton_vm/`, CoW 디스크 격리) 구동, 순정 커널 `auditd` 6종 syscall 포워딩, 유휴 하트비트 서비스 및 파라미터 선택형 5단계 시연 스크립트(Window B). |
-| **Verification Suite** | `scripts/verify_realtime_soc.py`<br>`scripts/verify_live_vm.py` | 빈 클라우드 기동·아이콘 서빙·로그 스트림·Significance 단조 전환 검증 및 실제 KVM VM 기반 `--1` 단일 시나리오·전체 순차 시나리오 E2E 검증. |
+| **Calibration & Verification** | `scripts/calibrate_thresholds.py`<br>`scripts/verify_realtime_soc.py`<br>`scripts/verify_live_vm.py` | AIT-LDS `false_positive_test` 및 Ubuntu VM 5분 유휴 트래픽 기반 이중 환경 Split Conformal 보정, 빈 클라우드·아이콘·로그·단조 전환 검증 및 실제 KVM VM 기반 E2E 검증. |
 
 ---
 
@@ -45,26 +45,29 @@
 * **$O(1)$ Online CPR:** $0 \le \Delta t < 1.0\text{s}$ 내 동일 프로세스의 연속 파일 입출력을 `cpr_count`로 병합하고, 타 프로세스 개입 시 해당 파일의 병합 슬롯만 무효화.
 * **2-Hop 인과 서브그래프:** 활성 노드·공격 경로 엣지 양 끝단을 시드로 역방향 2-Hop + 정방향 1-Hop BFS를 수행하여 `subgraph_node_ids`와 `dominant_attack_class` 산출.
 
-### 3.2 단일 Conformal Cutoff 기반 활성 상태 판정 (`_evaluate_records_with_cutoff`)
-* **신뢰도 점수 분리 저장:** 매 틱 추론 시 노드·엣지의 확정 판정값 대신 **연속 신뢰도**를 캐시(`_cached_state`)에 저장.
-  * **노드:** `recon_score`(Masked AE 복원 오차 정규화값), `max_edge_risk`(인접 엣지 최대 악성 확률), `cand_cls`(후보 전술).
-  * **엣지:** `edge_conf = max(GNN 악성 확률, 0.85·min(양끝 recon) + 0.15·max(양끝 recon))`, `cand_cls`.
-* **동일 기준 판정:** 노드 신뢰도 `max(recon_score, max_edge_risk)` 및 엣지 `edge_conf`를 **하나의 Cutoff**와 비교하여 활성(공격) / 비활성(정상·회색) 상태를 결정. 양 끝단이 모두 활성인 엣지는 `0.72 × Cutoff`부터 공격 경로로 점등.
-* **Significance(α) → Cutoff 변환:** 정상 검증 구간 비순응도 점수의 $(1-\alpha)$ 경험적 분위수를 사용하며, 극단적 꼬리 구간에서도 고신뢰 탐지가 사라지지 않도록 상한을 `0.95`로 제한.
+### 3.2 이중 환경 Split Conformal Calibration 및 활성 상태 판정 (`_evaluate_records_with_cutoff`, `compute_window_fisher_summary`)
+* **이중 환경 보정 프로파일 (`configs/threshold_profile.json`, `configs/threshold_profile_vm.json`):**
+  * **AIT-LDS 프로파일(`ait`):** 7개 시나리오 미학습 `false_positive_test` 1,576개 순수 정상 윈도우 기반 (`recon_scale=1.1462`, $\alpha=0.01$ Cutoff `0.8493`, Fisher Threshold `30.6756`, Held-out Node FPR **`0.8920%` < 1%**).
+  * **Ubuntu VM 프로파일(`vm`):** 실제 Ubuntu VM 5분(300초) 유휴 데몬 트래픽(18,609줄 `auditd` 로그 → 4,803 CPR 엣지, 96개 마이크로틱 윈도우) 기반 (`recon_scale=2.4128`, $\alpha=0.01$ Cutoff `0.6977`, Fisher Threshold `40.1870`, Held-out Node FPR **`1.0140%`**). Ubuntu VM 고유 데몬의 높은 기본 복원 오차를 보정 스케일로 흡수하여 오탐을 억제.
+* **엔티티 타입별 $p$-value 및 Fisher's Method 통합 점수:**
+  * `process` / `file` / `socket` 타입별 독립 스케일과 정렬 비순응도 분포에서 $O(\log M)$ 경험적 $p$-value($p_t$)를 산출.
+  * 윈도우 내 활성 엔티티 타입별 최솟값 $p$-value를 Fisher's Method($T_{\text{Fisher}} = -2 \sum_t \ln p_{W, t}$)로 결합하여 Split Conformal 경험적 $p$-value 및 $\chi^2_{2k}$ 유의확률을 `telemetry.fisher`에 포함.
+* **신뢰도 점수 분리 저장 및 동일 기준 판정:** 매 틱 추론 시 노드(`recon_score`, `max_edge_risk`, `cand_cls`)와 엣지(`edge_conf`, `cand_cls`)의 연속 신뢰도를 캐시(`_cached_state`)에 저장하고, 단일 Cutoff와 비교해 활성(공격) / 비활성(정상·회색) 상태를 결정(양 끝단이 모두 활성인 엣지는 `0.72 × Cutoff`부터 점등).
+* **Significance(α) → Cutoff 변환 (`configs/threshold_profile.json` 기준, 상한 `0.95`):**
 
-| Significance (α) | Cutoff | 화면 동작 |
-| :---: | :---: | :--- |
-| `0.002` (최저) | `0.950` | 유출(`0.955`) 등 **확실한 공격 노드만** 네온 강조, 나머지는 회색 전환 |
-| `0.010` | `0.910` | 권한 상승(`0.925`)까지 활성 |
-| `0.050` (기본) | `0.635` | 스캔·웹셸·크래킹 포함 전 단계 활성 |
-| `0.240` (최고) | `0.138` | 복원 오차가 다소 높은 **정상 노드·엣지까지 공격 상태로 전환** |
+| Significance (α) | AIT-LDS Cutoff | VM Cutoff | 화면 동작 |
+| :---: | :---: | :---: | :--- |
+| `0.005` | `0.938` | `0.705` | 고신뢰 공격 노드 중심 강조 |
+| `0.010` (기본) | `0.849` | `0.698` | **FPR < 1%** 목표 지점, 핵심 공격 단계 활성 |
+| `0.050` | `0.632` | `0.632` | 스캔·웹셸·크래킹 포함 전 단계 활성 |
+| `0.200` | `0.325` | `0.448` | 복원 오차가 다소 높은 경계 정상 노드까지 민감 표시 |
 
-* **무재추론 갱신:** 슬라이더 조작 시 GNN을 재실행하지 않고 캐시된 신뢰도 배열만 $O(N)$ 재평가(실측 `0.070 ms`)하여 `graph_delta`(`updated_nodes`, `updated_edges`)와 2-Hop 서브그래프를 즉시 재산출. 클라우드 좌표는 유지되고 **색상·크기·불투명도만** 전환됨.
+* **무재추론 갱신:** 슬라이더 조작 또는 `POST /api/profile` 전환 시 GNN을 재실행하지 않고 캐시된 신뢰도 배열만 $O(N)$ 재평가(실측 `0.206 ms`)하여 `graph_delta`(`updated_nodes`, `updated_edges`)와 2-Hop 서브그래프를 즉시 재산출. 클라우드 좌표는 유지되고 **색상·크기·불투명도만** 전환됨.
 
 ### 3.3 저지연 추론 가속 (`src/graph/encoder.py`, `src/models/hetero_gnn.py`)
-* **FastText 어휘 캐시 선적재:** 로드 시 전체 어휘 벡터를 `_tok_vec_cache`에 선적재하여 런타임 n-gram 해싱 병목 제거.
-* **3-배치 블록 대각 융합 추론:** 원본 그래프와 2-Fold 마스킹 그래프 2개를 단일 블록 대각 그래프로 결합하여 `encode_backbone` 호출을 3회에서 1회로 축소.
-* **Split Conformal $p$-value:** $p(s) = \frac{1 + |\{i : s_i \ge s\}|}{1 + M}$ (이진 탐색 $O(\log M)$).
+* **FastText 어휘 캐시 선적재 및 온라인 정규화:** 7-시나리오 통합 FastText(`artifacts/all7_cmd_fasttext.model`) 어휘 벡터를 `_tok_vec_cache`에 선적재하고, 체크포인트 내 Train 전용 `feature_stats`를 마이크로틱 스냅샷에 즉시 적용.
+* **3-배치 블록 대각 융합 추론 및 ONNX/컴파일 검증:** 원본 그래프와 2-Fold 마스킹 그래프 2개를 단일 블록 대각 그래프로 결합하여 `encode_backbone` 호출을 3회에서 1회로 축소(CUDA Eager 평균 `20.44 ms/window`, Edge MLP ONNX Export `artifacts/koton_edge_classifier.onnx` CPU ORT **1.96x 가속**).
+* **Split Conformal $p$-value:** $p_t(s) = \frac{1 + |\{i : s_{t,i} \ge s\}|}{1 + M_t}$ (엔티티 타입별 이진 탐색 $O(\log M_t)$).
 
 ---
 
@@ -77,6 +80,7 @@
 | **HTTP `GET`** | `/` , `/images/<filename>` | 대시보드 HTML 렌더링 및 사용자 제작 HUD 아이콘(`process.png`, `file.png`, `socket.png`) 서빙. |
 | **HTTP `GET`** | `/api/status` , `/api/snapshot` | 수집기 상태 조회 및 현재 윈도우 그래프 스냅샷 반환(최초 기동 직후에는 빈 `nodes`/`edges`). |
 | **HTTP `POST`** | `/api/threshold` | `{"alpha": <float>}` 또는 `{"threshold": <float>}` 수신 후 무재추론 갱신 결과 반환 및 브로드캐스트. |
+| **HTTP `POST`** | `/api/profile` | `{"mode": "ait" \| "vm"}` 수신 시 `configs/threshold_profile{,_vm}.json`을 무재기동으로 전환하고 `threshold_updated` 브로드캐스트. |
 | **HTTP `POST`** | `/api/simulate/live_attack` | VM 없이 동작 확인이 가능하도록 4단계 커널 `auditd` 멀티라인 이벤트 스트림을 수집기에 주입. |
 | **WS `Server → Client`** | `graph_init` | 최초 소켓 연결 시 현재 윈도우 상태 1회 전송(서버 최초 기동 시 **빈 클라우드**). |
 | **WS `Server → Client`** | `graph_delta` | 신규 스트림 유입 또는 마이크로 틱마다 변경분(`added_*`, `updated_*`, `removed_*`)과 텔레메트리 푸시. |
@@ -119,13 +123,21 @@
     "removed_edge_ids": []
   },
   "telemetry": {
-    "latency_ms": 39.29,
-    "num_nodes": 364,
-    "num_edges": 1390,
-    "alpha": 0.05,
-    "threshold": 0.6347,
-    "estimated_fpr": 0.0084,
-    "online_cpr_pct": 14.30
+    "latency_ms": 45.35,
+    "num_nodes": 365,
+    "num_edges": 1386,
+    "alpha": 0.01,
+    "threshold": 0.6977,
+    "estimated_fpr": 0.0089,
+    "online_cpr_pct": 14.50,
+    "profile_env": "ubuntu_vm_idle",
+    "fisher": {
+      "fisher_stat": 42.18,
+      "fisher_threshold": 40.187,
+      "fisher_chi2_pvalue": 0.000001,
+      "fisher_conformal_pvalue": 0.0099,
+      "is_fisher_anomalous": true
+    }
   }
 }
 ```
@@ -174,24 +186,25 @@
 | `--5` | `service_stop/dnsteal` (5) | 수집 파일을 `/tmp/exfil_customers_secret.tar.gz`로 압축 → 자체 생성 로컬 리스너(`127.0.0.1:4444`)로 전송 |
 
 ### 5.3 통합 검증 지표
-* **`scripts/verify_realtime_soc.py` (5/5 통과)**
+* **`scripts/verify_realtime_soc.py` (5/5 통과, 7-시나리오 통합 모델 + AIT-LDS 프로파일)**
   * 사용자 아이콘 보존(`512×512` × 3종) 및 `/images/*` 서빙 확인.
   * 최초 기동 시 빈 클라우드(`0 / 0`) 확인.
   * 원문 로그 24줄 → 링 버퍼 24줄 전량 수신, 프로비넌스 엣지 18개 생성.
-  * 스트리밍 틱 **`25.13 ms`**.
-  * Significance 단조 전환: α=`0.002` → **3개** 활성 / α=`0.050` → **12개** / α=`0.240` → **16개** (무재추론 **`0.070 ms`**).
-* **`scripts/verify_live_vm.py` (실제 KVM Ubuntu VM)**
-  * 유휴 하트비트 스트림이 호스트 수집기에 도달함을 확인.
-  * `--1` 단독 실행: Stage 1만 실행되고 Stage 2 이후는 실행되지 않음을 확인(원문 로그 80줄, 신규 노드 213개, 틱 `176.61 ms`).
-  * 인자 없는 전체 실행: Stage 1~5 순차 완료, Cold Burst **`47.47 ms`**, Steady Tick **`39.29 ms`**, 364 노드 · 1,390 엣지, Online CPR **`14.30%`**, 2-Hop 서브그래프 359 노드 검출.
+  * 스트리밍 틱 **`29.01 ms`** (< 250ms SLA).
+  * Significance 단조 전환: α=`0.002` → **3개** 활성 / α=`0.050` → **11개** / α=`0.240` → **13개** (무재추론 **`0.206 ms`**).
+* **`scripts/verify_live_vm.py` (실제 KVM Ubuntu VM, `KOTON_PROFILE_MODE=vm` 통과)**
+  * 유휴 하트비트 스트림이 호스트 수집기에 도달함을 확인(별도 5분 유휴 보정 시 18,609줄 / 4,803 CPR 엣지 수집, CPR **`19.80%`**).
+  * `--1` 단독 실행: Stage 1만 실행되고 Stage 2 이후는 실행되지 않음을 확인(원문 로그 80줄, 신규 노드 213개, 틱 `223.21 ms`).
+  * 인자 없는 전체 실행: Stage 1~5 순차 완료, Cold Burst **`50.43 ms`**, Steady Tick **`45.35 ms`**, 365 노드 · 1,386 엣지, Online CPR **`14.50%`**, 2-Hop 서브그래프 353 노드(`privilege_escalation`) 검출.
 
 ### 5.4 Dual-Window 라이브 데모 구동 절차 (WSL2)
 * **Window A (호스트 백엔드 및 3D 관제 대시보드 — `http://127.0.0.1:5000`):**
   ```bash
   cd /mnt/c/Users/dongmin/Desktop/KoTon
   bash scripts/start_ubuntu_vm.sh
-  .venv/bin/python web/app.py
+  KOTON_PROFILE_MODE=vm .venv/bin/python web/app.py
   ```
+  * 환경 변수 `KOTON_PROFILE_MODE`는 `ait`(기본값, `configs/threshold_profile.json`) 또는 `vm`(`configs/threshold_profile_vm.json`)을 지원하며, 기동 중에도 `POST /api/profile`로 무재기동 전환 가능.
 * **Window B (격리 Ubuntu VM SSH 접속 및 시나리오 실행):**
   ```bash
   ssh -i ~/.koton_vm/id_ed25519 -p 2222 ubuntu@127.0.0.1

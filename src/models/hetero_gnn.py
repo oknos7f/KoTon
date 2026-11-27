@@ -8,7 +8,12 @@ from torch_geometric.data import HeteroData
 from torch_geometric.nn import GATv2Conv, HeteroConv
 
 from src.graph.builder import CANONICAL_EDGE_TYPES, REVERSE_EDGE_MAP
-from src.models.losses import MultiClassFocalLoss, ScaledCosineErrorLoss
+from src.models.losses import (
+    MultiClassFocalLoss,
+    RelationBalancedFocalLoss,
+    RelationBalancedMaskSampler,
+    ScaledCosineErrorLoss,
+)
 
 NODE_TYPES: Tuple[str, ...] = ("process", "file", "socket")
 ALL_CONV_EDGE_TYPES: List[Tuple[str, str, str]] = CANONICAL_EDGE_TYPES + list(REVERSE_EDGE_MAP.values())
@@ -32,19 +37,31 @@ class EdgeAwareMultiTaskHeteroGNN(nn.Module):
         focal_gamma: float = 2.0,
         cls_loss_weight: float = 1.0,
         class_weights: Optional[torch.Tensor] = None,
+        use_relation_balanced_masking: bool = True,
+        high_risk_rel_boost: float = 2.5,
+        relation_loss_alpha: float = 0.5,
+        relation_weights: Optional[Dict[str, float]] = None,
     ) -> None:
         """Construct type-specific input projections, GATv2 HeteroConv backbone, AE decoders, and edge MLP."""
         super().__init__()
         if gat_out_channels * gat_heads != hidden_dim:
-            raise ValueError("gat_out_channels * gat_heads must equal hidden_dim (128).")
+            raise ValueError("gat_out_channels * gat_heads must equal hidden_dim.")
 
         self.node_in_dims = node_in_dims or {"process": 68, "file": 36, "socket": 20}
         self.hidden_dim = hidden_dim
+        self.gat_out_channels = gat_out_channels
+        self.gat_heads = gat_heads
         self.num_layers = num_layers
         self.edge_dim = edge_dim
         self.num_classes = num_classes
+        self.dropout_rate = dropout
         self.mask_rate = mask_rate
+        self.sce_gamma = sce_gamma
+        self.focal_gamma = focal_gamma
         self.cls_loss_weight = cls_loss_weight
+        self.use_relation_balanced_masking = bool(use_relation_balanced_masking)
+        self.high_risk_rel_boost = float(high_risk_rel_boost)
+        self.relation_loss_alpha = float(relation_loss_alpha)
 
         self.input_projections = nn.ModuleDict(
             {
@@ -111,6 +128,17 @@ class EdgeAwareMultiTaskHeteroGNN(nn.Module):
 
         self.recon_criterion = ScaledCosineErrorLoss(gamma=sce_gamma)
         self.cls_criterion = MultiClassFocalLoss(gamma=focal_gamma, weight=class_weights)
+        self.rel_cls_criterion = RelationBalancedFocalLoss(
+            gamma=focal_gamma,
+            class_weights=class_weights,
+            relation_weights=relation_weights,
+            relation_loss_alpha=relation_loss_alpha,
+        )
+        self.relation_mask_sampler = RelationBalancedMaskSampler(
+            canonical_edge_types=CANONICAL_EDGE_TYPES,
+            node_types=NODE_TYPES,
+            high_risk_boost=high_risk_rel_boost,
+        )
 
     def encode_backbone(
         self,
@@ -180,25 +208,42 @@ class EdgeAwareMultiTaskHeteroGNN(nn.Module):
         return logits_dict
 
     def _compute_masked_recon_loss(self, data: HeteroData) -> torch.Tensor:
-        """Apply 50% node feature masking per node type and compute reconstruction loss on clean windows."""
+        """Apply Relation-Balanced (or uniform) node feature masking per node type on clean windows."""
         device = next(self.parameters()).device
         masked_x_dict: Dict[str, torch.Tensor] = {}
-        mask_indices_dict: Dict[str, torch.Tensor] = {}
 
-        for ntype in NODE_TYPES:
-            x = data[ntype].x
-            n_nodes = x.size(0)
-            if n_nodes == 0:
-                masked_x_dict[ntype] = x
-                mask_indices_dict[ntype] = torch.zeros((0,), dtype=torch.long, device=device)
-                continue
+        if self.use_relation_balanced_masking:
+            mask_indices_dict, node_weights_dict = self.relation_mask_sampler.sample_masked_nodes(
+                data, self.mask_rate, device
+            )
+            for ntype in NODE_TYPES:
+                x = data[ntype].x
+                idx = mask_indices_dict[ntype]
+                if idx.numel() == 0:
+                    masked_x_dict[ntype] = x
+                else:
+                    x_corrupted = x.clone()
+                    x_corrupted[idx] = self.mask_tokens[ntype].expand(idx.numel(), -1).to(x.dtype)
+                    masked_x_dict[ntype] = x_corrupted
+        else:
+            mask_indices_dict = {}
+            node_weights_dict = {}
+            for ntype in NODE_TYPES:
+                x = data[ntype].x
+                n_nodes = x.size(0)
+                if n_nodes == 0:
+                    masked_x_dict[ntype] = x
+                    mask_indices_dict[ntype] = torch.zeros((0,), dtype=torch.long, device=device)
+                    node_weights_dict[ntype] = torch.zeros((0,), dtype=torch.float32, device=device)
+                    continue
 
-            num_mask = max(1, int(math.ceil(self.mask_rate * n_nodes)))
-            perm = torch.randperm(n_nodes, device=device)[:num_mask]
-            x_corrupted = x.clone()
-            x_corrupted[perm] = self.mask_tokens[ntype].expand(num_mask, -1).to(x.dtype)
-            masked_x_dict[ntype] = x_corrupted
-            mask_indices_dict[ntype] = perm
+                num_mask = max(1, int(math.ceil(self.mask_rate * n_nodes)))
+                perm = torch.randperm(n_nodes, device=device)[:num_mask]
+                x_corrupted = x.clone()
+                x_corrupted[perm] = self.mask_tokens[ntype].expand(num_mask, -1).to(x.dtype)
+                masked_x_dict[ntype] = x_corrupted
+                mask_indices_dict[ntype] = perm
+                node_weights_dict[ntype] = torch.ones((num_mask,), dtype=torch.float32, device=device)
 
         h_masked = self.encode_backbone(masked_x_dict, data.edge_index_dict, data.edge_attr_dict)
 
@@ -209,33 +254,42 @@ class EdgeAwareMultiTaskHeteroGNN(nn.Module):
                 continue
             pred_x = self.decoders[ntype](h_masked[ntype][idx])
             target_x = data[ntype].x[idx]
-            type_losses.append(self.recon_criterion(pred_x, target_x))
+            w_sel = node_weights_dict[ntype] if self.use_relation_balanced_masking else None
+            type_losses.append(self.recon_criterion(pred_x, target_x, sample_weights=w_sel))
 
         if not type_losses:
             return torch.zeros((), dtype=torch.float32, device=device)
         return torch.stack(type_losses).mean()
 
     def forward(self, data: HeteroData) -> Dict[str, object]:
-        """Execute multi-task forward pass with strict clean-benign loss masking for Task 1."""
+        """Execute multi-task forward pass with strict clean-benign loss masking and relation-balanced classification."""
         device = next(self.parameters()).device
         h_dict = self.encode_backbone(data.x_dict, data.edge_index_dict, data.edge_attr_dict)
         edge_logits_dict = self.classify_edges(h_dict, data)
 
-        all_logits: List[torch.Tensor] = []
-        all_targets: List[torch.Tensor] = []
-        for etype in CANONICAL_EDGE_TYPES:
-            if edge_logits_dict[etype].size(0) > 0:
-                all_logits.append(edge_logits_dict[etype])
-                all_targets.append(data[etype].edge_y)
-
-        if all_logits:
-            cat_logits = torch.cat(all_logits, dim=0)
-            cat_targets = torch.cat(all_targets, dim=0)
-            cls_loss = self.cls_criterion(cat_logits, cat_targets)
+        if self.relation_loss_alpha > 0.0:
+            targets_dict = {etype: data[etype].edge_y for etype in CANONICAL_EDGE_TYPES}
+            cls_loss = self.rel_cls_criterion.forward_dict(edge_logits_dict, targets_dict, device=device)
         else:
-            cls_loss = torch.zeros((), dtype=torch.float32, device=device)
+            all_logits: List[torch.Tensor] = []
+            all_targets: List[torch.Tensor] = []
+            for etype in CANONICAL_EDGE_TYPES:
+                if edge_logits_dict[etype].size(0) > 0:
+                    all_logits.append(edge_logits_dict[etype])
+                    all_targets.append(data[etype].edge_y)
 
-        is_clean = bool(data.is_clean_benign_window.item()) if hasattr(data, "is_clean_benign_window") else False
+            if all_logits:
+                cat_logits = torch.cat(all_logits, dim=0)
+                cat_targets = torch.cat(all_targets, dim=0)
+                cls_loss = self.cls_criterion(cat_logits, cat_targets)
+            else:
+                cls_loss = torch.zeros((), dtype=torch.float32, device=device)
+
+        is_clean = (
+            bool(data.is_clean_benign_window.all().item())
+            if hasattr(data, "is_clean_benign_window") and data.is_clean_benign_window.numel() > 0
+            else False
+        )
         if is_clean:
             recon_loss = self._compute_masked_recon_loss(data)
             total_loss = recon_loss + self.cls_loss_weight * cls_loss

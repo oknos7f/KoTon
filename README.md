@@ -50,17 +50,10 @@ Linux 네이티브 auditd 로그와 다중 클래스 GT을 제공하는 AIT-LDS 
 ### ☑ Step 6: Ubuntu VM 기반 실시간 `auditd` 수집 및 스트리밍 추론 엔진 제작
 ### ☑ Step 7: Flask-SocketIO + Three.js 3D 보안 관제 및 Dual-Window 데모 ([웹 상세 정보](./WEB.md))
 ### ☑ Step 8: 라이브 공격 시나리오 스크립트 및 고성능 3D 비주얼 고도화
-### ☐ Step 9: AIT-LDS v2.0 전체 시나리오 추가 확장 및 모델 최적화
-- **전체 시나리오 통합 전처리 (`dataset/` 읽기 전용 유지):**
-  - `wheeler`를 제외한 나머지 6개 시나리오(`russellmitchell`, `harrison`, `santos`, `shaw`, `wardbeck`, `wilson`)를 `RAW_PHASES`에 추가 등록 후 `processed/<scenario_name>/`에 직렬화(`.pt`).
-  - Transductive Leakage를 차단한 **7-Fold LOOCV** 적용(Fold별 Train 시나리오 내부에서만 FastText 및 정규화 통계량 독립 학습).
-- **관계 균형 마스킹 및 하이퍼파라미터 최적화 (`src/models/losses.py`, `scripts/train_loocv.py`):**
-  - 저빈도·고위험 관계(`execute`, `connect`, `fork`) 민감도 확보를 위한 **Relation-Balanced Masking** 도입 및 `Optuna` 기반 하이퍼파라미터 탐색·추론 가속(`torch.compile`/ONNX).
-
-### ☐ Step 10: `false_positive_test` 및 VM 정상 구간 기반 Conformal 임계치 고도화 (`scripts/calibrate_threshold.py`)
-- **이중 환경 Split Conformal Calibration:**
-  - AIT-LDS `false_positive_test` 순수 정상 구간에 대해 엔티티 타입별 경험적 $p$-value 및 Fisher's Method 통합 점수를 산출하여 **FPR < 1% ($\alpha = 0.01$)**를 보장하는 `configs/threshold_profile.json` 최종 갱신.
-  - Ubuntu VM 고유 데몬에 의한 오탐 억제를 위해 **VM 유휴 트래픽(5~10분)** 전용 `configs/threshold_profile_vm.json` 별도 산출.
+### ☑ Step 9: AIT-LDS v2.0 전체 시나리오 추가 확장 및 모델 최적화 ([모델 상세 정보](./MODEL.md))
+- **LOOCV Macro-F1 `0.7491 ± 0.0336`**, **Weighted-F1 `0.9838 ± 0.0086`**, **고위험 관계 Recall `0.9173`** 달성.
+- **Val Macro-F1 `0.8268`**, **Weighted-F1 `0.9940`**
+### ☑ Step 10: `false_positive_test` 및 VM 정상 구간 기반 임계치 고도화 ([웹 상세 정보](./WEB.md))
 
 ### ☐ Step 11: [선택] CAM-LDS (2026) 통합 및 도메인 강건성 검증
 - **데이터셋 통합 및 피처 스펙 정합:**
@@ -75,9 +68,9 @@ Linux 네이티브 auditd 로그와 다중 클래스 GT을 제공하는 AIT-LDS 
    ```bash
    cd /mnt/c/Users/dongmin/Desktop/KoTon
    scripts/start_ubuntu_vm.sh
-   .venv/bin/python web/app.py
+   KOTON_PROFILE_MODE=vm .venv/bin/python web/app.py
    ```
-2. Window B — 격리 Ubuntu VM 접속 및 4단계 시나리오 실행:
+2. Window B — 격리 Ubuntu VM 접속 및 5단계 시나리오 실행:
    ```bash
    ssh -i ~/.koton_vm/id_ed25519 -p 2222 ubuntu@127.0.0.1
    /home/ubuntu/demo_attack.sh

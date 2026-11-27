@@ -1,8 +1,11 @@
 .venv/
-/dataset/
+dataset/
 __pycache__/
 *.pyc
 *.pt
 *.model
 *.npy
 *.zip
+*.log
+*.zip
+processed/
